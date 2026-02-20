@@ -1,0 +1,251 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+@layer base {
+  :root {
+    --background: 222 47% 11%;
+    --foreground: 210 40% 98%;
+    --card: 222 47% 11%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222 47% 11%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 24 100% 62%;
+    --primary-foreground: 222 47% 11%;
+    --secondary: 199 89% 48%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 217 33% 17%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 24 100% 62%;
+    --accent-foreground: 222 47% 11%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217 33% 17%;
+    --input: 217 33% 17%;
+    --ring: 24 100% 62%;
+    --radius: 0.3rem;
+    --neon-orange: 24 100% 62%;
+    --cyber-blue: 199 89% 48%;
+    --emergency-red: 0 84% 60%;
+  }
+  /* レベル帯テーマ（Life Quest）。既存の --neon-orange 等は維持し、背景トーンのみ上書き */
+  [data-tier="1"] {
+    --background: 220 15% 8%;
+    --foreground: 210 20% 90%;
+    --muted: 220 15% 14%;
+    --muted-foreground: 215 15% 60%;
+  }
+  [data-tier="2"] {
+    /* 序盤：既存の暗灰色を維持（デフォルト） */
+  }
+  [data-tier="3"] {
+    --background: 24 30% 10%;
+    --muted: 24 25% 16%;
+    --muted-foreground: 24 20% 65%;
+  }
+  [data-tier="4"] {
+    --background: 270 40% 8%;
+    --muted: 270 35% 14%;
+    --muted-foreground: 270 25% 65%;
+  }
+  [data-tier="5"] {
+    --background: 45 30% 12%;
+    --foreground: 45 20% 95%;
+    --muted: 45 25% 18%;
+    --muted-foreground: 45 15% 75%;
+  }
+
+  /* イベントモード（季節テーマ）。theme-reborn が優先される場合あり */
+  [data-season="spring"]:not(.theme-reborn) {
+    --background: 140 40% 10%;
+    --muted: 140 35% 16%;
+    --muted-foreground: 140 25% 65%;
+    --neon-orange: 85 70% 50%;
+    --cyber-blue: 160 60% 45%;
+  }
+  [data-season="summer"]:not(.theme-reborn) {
+    --background: 200 50% 10%;
+    --muted: 200 40% 16%;
+    --muted-foreground: 200 30% 65%;
+    --neon-orange: 35 95% 55%;
+    --cyber-blue: 195 80% 50%;
+  }
+  [data-season="autumn"]:not(.theme-reborn) {
+    --background: 25 45% 10%;
+    --muted: 25 40% 16%;
+    --muted-foreground: 25 30% 65%;
+    --neon-orange: 30 90% 55%;
+    --cyber-blue: 25 60% 45%;
+  }
+  [data-season="winter"]:not(.theme-reborn) {
+    --background: 210 40% 12%;
+    --muted: 210 35% 18%;
+    --muted-foreground: 210 25% 65%;
+    --neon-orange: 200 70% 60%;
+    --cyber-blue: 210 80% 55%;
+  }
+
+  /* 転生者（theme-reborn）: 禍々しい赤黒反転テーマ */
+  .theme-reborn,
+  .theme-reborn.dark {
+    --background: 0 60% 4%;
+    --foreground: 0 20% 95%;
+    --card: 0 50% 6%;
+    --card-foreground: 0 20% 95%;
+    --popover: 0 50% 6%;
+    --popover-foreground: 0 20% 95%;
+    --muted: 0 40% 12%;
+    --muted-foreground: 0 25% 75%;
+    --border: 0 50% 18%;
+    --neon-orange: 0 75% 55%;
+    --cyber-blue: 0 70% 50%;
+    --emergency-red: 0 85% 45%;
+  }
+
+  .dark {
+    --background: 222 47% 11%;
+    --foreground: 210 40% 98%;
+    --card: 222 47% 11%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222 47% 11%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 24 100% 62%;
+    --primary-foreground: 222 47% 11%;
+    --secondary: 199 89% 48%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 217 33% 17%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 24 100% 62%;
+    --accent-foreground: 222 47% 11%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217 33% 17%;
+    --input: 217 33% 17%;
+    --ring: 24 100% 62%;
+    --neon-orange: 24 100% 62%;
+    --cyber-blue: 199 89% 48%;
+    --emergency-red: 0 84% 60%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+@keyframes glitch {
+  0% {
+    transform: translate(0);
+  }
+  20% {
+    transform: translate(-2px, 2px);
+  }
+  40% {
+    transform: translate(-2px, -2px);
+  }
+  60% {
+    transform: translate(2px, 2px);
+  }
+  80% {
+    transform: translate(2px, -2px);
+  }
+  100% {
+    transform: translate(0);
+  }
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    opacity: 1;
+    filter: drop-shadow(0 0 8px hsl(var(--neon-orange)));
+  }
+  50% {
+    opacity: 0.7;
+    filter: drop-shadow(0 0 12px hsl(var(--neon-orange)));
+  }
+}
+
+@keyframes scan {
+  0% {
+    transform: translateY(-100%);
+  }
+  100% {
+    transform: translateY(100%);
+  }
+}
+
+@keyframes float-up {
+  0% {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.glitch-text {
+  animation: glitch 0.3s ease-in-out;
+}
+
+.pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+.float-up {
+  animation: float-up 0.5s ease-out forwards;
+}
+
+@keyframes flavor-expand {
+  0% {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.flavor-expand {
+  animation: flavor-expand 0.35s ease-out forwards;
+}
+
+/* ロード画面用：フリップする正方形 */
+@keyframes flip-square {
+  0%, 100% {
+    transform: rotateY(0deg) rotateX(0deg);
+  }
+  25% {
+    transform: rotateY(90deg) rotateX(0deg);
+  }
+  50% {
+    transform: rotateY(180deg) rotateX(90deg);
+  }
+  75% {
+    transform: rotateY(270deg) rotateX(0deg);
+  }
+}
+
+/* ロード画面用：火の粉ふわふわ */
+@keyframes ember-float {
+  0%, 100% {
+    opacity: 0.4;
+    transform: rotate(var(--r, 0deg)) translateY(-28px) scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: rotate(var(--r, 0deg)) translateY(-36px) scale(1.3);
+  }
+}

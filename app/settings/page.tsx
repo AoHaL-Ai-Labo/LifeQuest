@@ -103,24 +103,26 @@ export default function SettingsPage() {
           )}
         </Card>
 
-        <Card className="p-5 space-y-4 border border-border bg-muted/30">
-          <h2 className="font-mono text-xs uppercase text-muted-foreground tracking-wider">
-            開発者向け
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            デバッグパネル（Lv+1、Mock API、リセット等）の表示を切り替えます。
-          </p>
-          <label className="flex items-center gap-2 cursor-pointer">
-            <Switch
-              checked={developerMode}
-              onCheckedChange={(checked) => {
-                setDeveloperMode(checked)
-                setDeveloperModeState(checked)
-              }}
-            />
-            <span className="font-mono text-sm">開発者モード</span>
-          </label>
-        </Card>
+        {process.env.NODE_ENV === 'development' && (
+          <Card className="p-5 space-y-4 border border-border bg-muted/30">
+            <h2 className="font-mono text-xs uppercase text-muted-foreground tracking-wider">
+              開発者向け
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              デバッグパネル（Lv+1、Mock API、リセット等）の表示を切り替えます。
+            </p>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <Switch
+                checked={developerMode}
+                onCheckedChange={(checked) => {
+                  setDeveloperMode(checked)
+                  setDeveloperModeState(checked)
+                }}
+              />
+              <span className="font-mono text-sm">開発者モード</span>
+            </label>
+          </Card>
+        )}
       </div>
     </div>
   )

@@ -6,9 +6,11 @@ import { useRouter } from 'next/navigation'
 import { ArrowLeft } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { Switch } from '@/components/ui/switch'
 import { loadPlayerStatus } from '@/lib/player-status'
 import { isReborn } from '@/lib/reborn'
 import { hardResetSaveData } from '@/lib/save-data'
+import { getDeveloperMode, setDeveloperMode } from '@/lib/developer-mode'
 import { DEBUG_EVENT } from '@/components/debug-panel'
 import type { PlayerStatus } from '@/lib/player-status'
 
@@ -16,12 +18,20 @@ export default function SettingsPage() {
   const router = useRouter()
   const [status, setStatus] = useState<PlayerStatus | null>(null)
   const [confirmReset, setConfirmReset] = useState(false)
+  const [developerMode, setDeveloperModeState] = useState(false)
 
   useEffect(() => {
     const refresh = () => setStatus(loadPlayerStatus())
     refresh()
     window.addEventListener(DEBUG_EVENT, refresh)
     return () => window.removeEventListener(DEBUG_EVENT, refresh)
+  }, [])
+
+  useEffect(() => {
+    setDeveloperModeState(getDeveloperMode())
+    const onChange = () => setDeveloperModeState(getDeveloperMode())
+    window.addEventListener('developer-mode-change', onChange as EventListener)
+    return () => window.removeEventListener('developer-mode-change', onChange as EventListener)
   }, [])
 
   const handleHardReset = () => {
@@ -91,6 +101,25 @@ export default function SettingsPage() {
               キャンセル
             </Button>
           )}
+        </Card>
+
+        <Card className="p-5 space-y-4 border border-border bg-muted/30">
+          <h2 className="font-mono text-xs uppercase text-muted-foreground tracking-wider">
+            開発者向け
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            デバッグパネル（Lv+1、Mock API、リセット等）の表示を切り替えます。
+          </p>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <Switch
+              checked={developerMode}
+              onCheckedChange={(checked) => {
+                setDeveloperMode(checked)
+                setDeveloperModeState(checked)
+              }}
+            />
+            <span className="font-mono text-sm">開発者モード</span>
+          </label>
         </Card>
       </div>
     </div>

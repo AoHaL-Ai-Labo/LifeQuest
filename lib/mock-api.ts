@@ -1,13 +1,17 @@
 /**
  * Mock API モード: 開発時にAPI Rate Limitを回避するため、API通信をバイパスしてダミーデータを返す。
- * デバッグパネルのトグルでON/OFF。デフォルトはON。
+ * 開発者モードON時のみ有効。開発者モードOFF時は常に実APIを使用。
+ * デバッグパネルのトグルでON/OFF（開発者モード内での詳細制御）。
  */
+
+import { getDeveloperMode } from './developer-mode'
 
 const STORAGE_KEY = 'quest-log:mockApi'
 
-/** Mock APIが有効か（LocalStorageから読み取り。デフォルト true = ON） */
+/** Mock APIが有効か。開発者モードOFFの場合は常にfalse（実API）。開発者モードON時はLocalStorageで制御。 */
 export function getMockApiEnabled(): boolean {
-  if (typeof window === 'undefined') return true
+  if (typeof window === 'undefined') return false
+  if (!getDeveloperMode()) return false
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw === null) return true

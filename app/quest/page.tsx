@@ -65,6 +65,7 @@ import {
   MOCK_INVERTED_QUEST,
 } from '@/lib/mock-api'
 import { DEBUG_EVENT } from '@/components/debug-panel'
+import { getDeveloperMode } from '@/lib/developer-mode'
 import { SINGULARITY_TRIGGER_EVENT, SINGULARITY_FLED_EVENT, SINGULARITY_OPEN_EVENT, SINGULARITY_RETURNED_EVENT } from '@/components/singularity-modal'
 import { shouldTriggerSingularity, loadSingularityState } from '@/lib/singularity'
 import {
@@ -180,6 +181,14 @@ export default function QuestPage() {
   const [showPrestigeConfirm, setShowPrestigeConfirm] = useState(false)
   /** QuestHistory から動的算出した完了済みクエストID（バッチレス） */
   const [completedQuestIdsFromServer, setCompletedQuestIdsFromServer] = useState<Set<string>>(new Set())
+  const [developerMode, setDeveloperModeState] = useState(false)
+
+  useEffect(() => {
+    setDeveloperModeState(getDeveloperMode())
+    const onChange = () => setDeveloperModeState(getDeveloperMode())
+    window.addEventListener('developer-mode-change', onChange as EventListener)
+    return () => window.removeEventListener('developer-mode-change', onChange as EventListener)
+  }, [])
 
   useEffect(() => {
     const onFled = (e: CustomEvent<{ pendingClearModal?: { message: string; questTitle: string; leveledUp?: boolean; newLevel?: number } | null }>) => {
@@ -1173,9 +1182,11 @@ export default function QuestPage() {
               </div>
             </div>
             <div className="flex items-center gap-1">
-              <Button variant="ghost" size="sm" className="h-7 px-2 text-[10px] text-muted-foreground hover:text-foreground" onClick={clearQuestCache}>
-                🔄 Debug: クエスト履歴をリセット
-              </Button>
+              {developerMode && (
+                <Button variant="ghost" size="sm" className="h-7 px-2 text-[10px] text-muted-foreground hover:text-foreground" onClick={clearQuestCache}>
+                  🔄 Debug: クエスト履歴をリセット
+                </Button>
+              )}
               <Link href="/settings">
                 <Button variant="ghost" size="icon" className="hover:bg-muted">
                   <Settings className="w-5 h-5" />

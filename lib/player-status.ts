@@ -1,11 +1,26 @@
 /**
  * Life Quest: プレイヤーステータス（Level, EXP, Rank, Prefix）
  * localStorage で永続化。既存UIは変更せず状態のみ配線する。
+ * 6ステータス（stats）と努力値（hiddenExp）を管理し、レベルアップ時に特化属性を+1する。
  */
 
 import { isReborn } from './reborn'
+import { addQuestExp, processLevelUp } from './statusEngine'
+import type { PrimaryStat } from './quest-types'
 
 const STORAGE_KEY = 'quest-log:playerStatus'
+
+/** 6属性の実際のステータスレベル（初期値はすべて10・持たざる者に倣う） */
+export type PlayerStats = { str: number; dex: number; end: number; int: number; fai: number; arc: number }
+
+/** 6属性の裏の努力値（レベルアップ判定用、初期値はすべて0） */
+export type PlayerHiddenExp = { str: number; dex: number; end: number; int: number; fai: number; arc: number }
+
+const DEFAULT_STATS: PlayerStats = { str: 10, dex: 10, end: 10, int: 10, fai: 10, arc: 10 }
+const DEFAULT_HIDDEN_EXP: PlayerHiddenExp = { str: 0, dex: 0, end: 0, int: 0, fai: 0, arc: 0 }
+
+/** レベル上限。到達時に「火を継ぐ」転生が可能 */
+export const MAX_LEVEL = 50
 const CLEAR_HISTORY_KEY = 'quest-log:clearHistory'
 const STREAK_KEY = 'quest-log:streak'
 const STREAK_CLAIMED_KEY = 'quest-log:streakClaimed'
@@ -15,10 +30,16 @@ export interface PlayerStatus {
   exp: number
   rank: string
   prefix: string
+  /** 転生回数（火を継いだ回数）。強くてニューゲームの解放条件に使用 */
+  prestigeCount: number
   /** 次レベルまでに必要なEXP（現在レベルから） */
   expToNext: number
   /** レベル帯 1〜5（テーマ用） */
   tier: 1 | 2 | 3 | 4 | 5
+  /** 6属性の実際のステータスレベル。初期値はすべて10（持たざる者に倣う）。未設定時は DEFAULT_STATS で補完 */
+  stats?: PlayerStats
+  /** 6属性の裏の努力値（レベルアップ判定用）。初期値はすべて0。未設定時は DEFAULT_HIDDEN_EXP で補完 */
+  hiddenExp?: PlayerHiddenExp
   /** ユーザーコンテキスト（パーソナライズ用） */
   context?: {
     environment?: string
@@ -53,6 +74,7 @@ const RANK_MAP: Record<number, string> = {
 
 function getRankForLevel(level: number): string {
   if (level >= 99) return RANK_MAP[99]
+  if (level >= 50) return RANK_MAP[50]
   let rank = RANK_MAP[1]
   for (const [l, r] of Object.entries(RANK_MAP)) {
     const lv = parseInt(l, 10)
@@ -73,6 +95,7 @@ export function getDisplayRank(level: number): string {
  */
 function getExpToNextLevel(level: number): number {
   if (level >= 99) return 0
+  if (level >= MAX_LEVEL) return 0
   let base: number
   if (level < 20) {
     base = 7 + level * 2 // Lv1:9, Lv2:11, Lv3:13, ... Lv19:45
@@ -98,6 +121,24 @@ function getTierFromLevel(level: number): 1 | 2 | 3 | 4 | 5 {
   return level >= 1 ? 2 : 1
 }
 
+function mergeStats(parsed: Record<string, unknown>, key: string, defaultVal: PlayerStats): PlayerStats {
+  const raw = parsed[key]
+  if (typeof raw !== 'object' || raw === null) return defaultVal
+  const o = raw as Record<string, unknown>
+  const result: PlayerStats = {
+    str: Math.max(0, Number(o.str) ?? defaultVal.str),
+    dex: Math.max(0, Number(o.dex) ?? defaultVal.dex),
+    end: Math.max(0, Number(o.end) ?? defaultVal.end),
+    int: Math.max(0, Number(o.int) ?? defaultVal.int),
+    fai: Math.max(0, Number(o.fai) ?? defaultVal.fai),
+    arc: Math.max(0, Number(o.arc) ?? defaultVal.arc),
+  }
+  const sum = result.str + result.dex + result.end + result.int + result.fai + result.arc
+  if (sum === 0) return defaultVal
+  if (result.str <= 1 && result.dex <= 1 && result.end <= 1 && result.int <= 1 && result.fai <= 1 && result.arc <= 1) return defaultVal
+  return result
+}
+
 export function loadPlayerStatus(): PlayerStatus {
   if (typeof window === 'undefined') {
     return getDefaultStatus(1)
@@ -109,16 +150,22 @@ export function loadPlayerStatus(): PlayerStatus {
       level?: number;
       exp?: number;
       prefix?: string;
-      context?: { environment?: string; weaknesses?: string }
+      prestigeCount?: number;
+      stats?: Record<string, number>;
+      hiddenExp?: Record<string, number>;
+      context?: { environment?: string; weaknesses?: string };
     }
-    const level = Math.min(99, Math.max(1, Number(parsed.level) || 1))
+    const level = Math.min(MAX_LEVEL, Math.max(1, Number(parsed.level) || 1))
     const exp = Math.max(0, Number(parsed.exp) ?? 0)
     const prefix = typeof parsed.prefix === 'string' ? parsed.prefix : ''
+    const prestigeCount = Math.max(0, Math.floor(Number(parsed.prestigeCount) ?? 0))
     const rank = getDisplayRank(level)
     const expToNext = getExpToNextLevel(level)
     const tier = getTierFromLevel(level)
+    const stats = mergeStats(parsed as Record<string, unknown>, 'stats', DEFAULT_STATS)
+    const hiddenExp = mergeStats(parsed as Record<string, unknown>, 'hiddenExp', DEFAULT_HIDDEN_EXP)
     const context = parsed.context
-    return { level, exp, rank, prefix, expToNext, tier, context }
+    return { level, exp, rank, prefix, prestigeCount, expToNext, tier, stats, hiddenExp, context }
   } catch {
     return getDefaultStatus(1)
   }
@@ -133,20 +180,26 @@ function getDefaultStatus(level: number): PlayerStatus {
     exp: 0,
     rank,
     prefix: '',
+    prestigeCount: 0,
     expToNext,
     tier,
+    stats: { ...DEFAULT_STATS },
+    hiddenExp: { ...DEFAULT_HIDDEN_EXP },
   }
 }
 
 export function savePlayerStatus(status: Omit<PlayerStatus, 'expToNext' | 'tier'>): void {
   if (typeof window === 'undefined') return
   try {
-    const level = Math.min(99, Math.max(1, status.level))
+    const level = Math.min(MAX_LEVEL, Math.max(1, status.level))
     const payload = {
       level,
       exp: status.exp,
       rank: status.rank,
       prefix: status.prefix ?? '',
+      prestigeCount: Math.max(0, status.prestigeCount ?? 0),
+      stats: status.stats ?? DEFAULT_STATS,
+      hiddenExp: status.hiddenExp ?? DEFAULT_HIDDEN_EXP,
       context: status.context,
     }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
@@ -166,27 +219,46 @@ export function updatePrefix(prefix: string): void {
   }
 }
 
+/** クエストクリア時のオプション（primaryStat と period が渡されると hiddenExp を蓄積） */
+export interface AddQuestOptions {
+  primaryStat: PrimaryStat
+  period: 'daily' | 'weekly' | 'monthly'
+}
+
 /**
  * クエストクリア時にEXPを加算し、レベルアップがあれば true を返す。
+ * questOptions が渡された場合、primaryStat に応じた hiddenExp を加算する。
+ * レベルアップ時は hiddenExp の最大属性に stats を +1 し、hiddenExp を 0 にリセットする。
  * 呼び出し側でレベルアップ時に /api/title を叩く想定。
  */
 export function addExpAndLevelUp(
   current: PlayerStatus,
-  expGain: number
+  expGain: number,
+  questOptions?: AddQuestOptions
 ): { newStatus: PlayerStatus; leveledUp: boolean } {
-  let { level, exp } = current
+  let { level, exp, stats, hiddenExp } = current
+  const safeStats = stats ?? { ...DEFAULT_STATS }
+  let safeHiddenExp = hiddenExp ?? { ...DEFAULT_HIDDEN_EXP }
+
+  if (questOptions) {
+    safeHiddenExp = addQuestExp(safeHiddenExp, questOptions.primaryStat, questOptions.period)
+  }
+
   let expToNext = getExpToNextLevel(level)
   let leveledUp = false
 
   let remaining = exp + expGain
-  while (level < 99 && remaining >= expToNext) {
+  while (level < MAX_LEVEL && remaining >= expToNext) {
     remaining -= expToNext
     level += 1
     leveledUp = true
+    const processed = processLevelUp(safeStats, safeHiddenExp)
+    Object.assign(safeStats, processed.stats)
+    safeHiddenExp = processed.hiddenExp
     expToNext = getExpToNextLevel(level)
   }
 
-  const expCurrent = level >= 99 ? 0 : remaining
+  const expCurrent = level >= MAX_LEVEL ? 0 : remaining
   const rank = getDisplayRank(level)
   const tier = getTierFromLevel(level)
   const newStatus: PlayerStatus = {
@@ -194,15 +266,18 @@ export function addExpAndLevelUp(
     exp: expCurrent,
     rank,
     prefix: current.prefix,
-    expToNext: level >= 99 ? 0 : expToNext,
+    prestigeCount: current.prestigeCount ?? 0,
+    expToNext: level >= MAX_LEVEL ? 0 : expToNext,
     tier,
+    stats: safeStats,
+    hiddenExp: safeHiddenExp,
   }
   return { newStatus, leveledUp }
 }
 
-/** デバッグ用: レベルを指定値に強制設定（exp=0、prefixは維持） */
+/** デバッグ用: レベルを指定値に強制設定（exp=0、prefix・prestigeCountは維持） */
 export function setLevelForDebug(level: number): PlayerStatus {
-  const lv = Math.min(99, Math.max(1, Math.floor(level)))
+  const lv = Math.min(MAX_LEVEL, Math.max(1, Math.floor(level)))
   const current = loadPlayerStatus()
   const rank = getDisplayRank(lv)
   const expToNext = getExpToNextLevel(lv)
@@ -212,6 +287,9 @@ export function setLevelForDebug(level: number): PlayerStatus {
     exp: 0,
     rank,
     prefix: current.prefix,
+    prestigeCount: current.prestigeCount ?? 0,
+    stats: current.stats ?? { ...DEFAULT_STATS },
+    hiddenExp: current.hiddenExp ?? { ...DEFAULT_HIDDEN_EXP },
     expToNext,
     tier,
   }
@@ -271,7 +349,7 @@ export function getQuestsToNextLevel(
   difficulty: 'beginner' | 'intermediate' | 'advanced' | 'abyss',
   streakBonus: number
 ): number {
-  if (status.level >= 99) return 0
+  if (status.level >= MAX_LEVEL) return 0
   const expPerQuest = getExpPerQuestClear(status.level, period, difficulty) + streakBonus
   if (expPerQuest <= 0) return 0
   const remaining = status.expToNext - status.exp

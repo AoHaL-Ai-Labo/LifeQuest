@@ -249,3 +249,33 @@
     transform: rotate(var(--r, 0deg)) translateY(-36px) scale(1.3);
   }
 }
+
+/* タイトル画面：灰の舞い落ち */
+@keyframes ash-fall {
+  0% {
+    transform: translateY(-20px) translateX(0);
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.3;
+  }
+  90% {
+    opacity: 0.3;
+  }
+  100% {
+    transform: translateY(100vh) translateX(20px);
+    opacity: 0;
+  }
+}
+
+/* タイトル画面：火の粉スパーク */
+@keyframes title-spark {
+  0% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-30px) translateX(10px) scale(0);
+    opacity: 0;
+  }
+}

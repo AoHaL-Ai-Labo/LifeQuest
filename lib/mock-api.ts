@@ -39,6 +39,8 @@ export const MOCK_QUEST = {
   title: '[テスト] 左手で歯を磨く',
   description: 'これはモックデータです。APIを消費していません。',
   flavorText: '火の無き灰よ、己の利き腕を封じよ…',
+  primaryStat: 'dex' as const,
+  stats: { str: 0, dex: 5, end: 0, int: 0, fai: 0, arc: 0 },
 }
 
 const QUEST_COUNTS = { daily: 5, weekly: 7, monthly: 10 } as const
@@ -72,6 +74,8 @@ export const MOCK_TRIAL_QUEST = {
   title: '[試練] 深淵への問い',
   description: '自分が最も避けている・苦手としている「1つの行動」を紙に書き、今週中にそれを1回だけ実行して記録せよ。',
   flavorText: '灰よ、己の影と向き合え。逃げ続ける者に、真の光は届かぬ。',
+  primaryStat: 'int' as const,
+  stats: { str: 0, dex: 0, end: 0, int: 15, fai: 0, arc: 0 },
 }
 
 /** 週末チャレンジ（土日のみ、週1回）のモック */
@@ -79,6 +83,8 @@ export const MOCK_WEEKEND_CHALLENGE = {
   title: '[週末] 休日の誓約',
   description: '週末に普段のルーティンを壊す小さな挑戦を1つ実行せよ。例：いつもより1時間早く起きる、普段行かない場所へ出かける。',
   flavorText: '怠惰の温床たる休日よ、汝に試練を課す。魂を眠らせず、一歩を踏み出せ。',
+  primaryStat: 'dex' as const,
+  stats: { str: 0, dex: 15, end: 0, int: 0, fai: 0, arc: 0 },
 }
 
 /** 月間テーマイベント（月1回）のモック */
@@ -86,6 +92,8 @@ export const MOCK_MONTHLY_EVENT = {
   title: '[今月のテーマ] 断捨離の月',
   description: '今月のテーマに沿って、1つだけ「手放す」または「整理する」行動を決め、実行して記録せよ。',
   flavorText: '積み重ねられた灰よ、今月は一掴みを手放せ。軽くなる魂に、新たな風が吹く。',
+  primaryStat: 'end' as const,
+  stats: { str: 0, dex: 0, end: 30, int: 0, fai: 0, arc: 0 },
 }
 
 /** 反転クエスト（日1回）のモック */
@@ -93,6 +101,8 @@ export const MOCK_INVERTED_QUEST = {
   title: '[反転] 断絶の誓約',
   description: '今日、普段無意識にやっている「1つの習慣」を意図的にやめよ。例：SNSを3時間見ない、スマホを寝室に持っていかない。',
   flavorText: '灰よ、己の慣れに縛られるな。断つその瞬間、真の自由が訪れる。',
+  primaryStat: 'fai' as const,
+  stats: { str: 0, dex: 0, end: 0, int: 0, fai: 5, arc: 0 },
 }
 
 /** 特異点（緊急ミッション）のモック */
@@ -107,6 +117,8 @@ export const MOCK_EXTRA_QUEST = {
   title: '[エクストラ] 灰の試練・完全制覇の証',
   description: '今日クリアした5つとは別に、もう1つだけ自分で「小さくコンフォートゾーンをはみ出る行動」を決めて実行し、1文で記録せよ。',
   flavorText: '全クエストを征した者にのみ、最後の一歩が示される。己の意志で、新たな境界線を引け。',
+  primaryStat: 'arc' as const,
+  stats: { str: 0, dex: 0, end: 0, int: 0, fai: 0, arc: 8 },
 }
 
 /** トロフィー審査のモック（50文字以上でsuccess: true） */

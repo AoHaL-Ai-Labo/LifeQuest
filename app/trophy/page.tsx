@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Award, Swords, ScrollText, CheckCircle2, Send } from 'lucide-react'
+import { Award, Swords, ScrollText, CheckCircle2, Feather } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Textarea } from '@/components/ui/textarea'
@@ -184,17 +184,17 @@ export default function TrophyPage() {
           onClick={() => !isSubmitting && setJudgeModal(null)}
         >
           <div
-            className="relative max-w-md w-full p-6 rounded-lg border-2 bg-background/95 float-up border-[hsl(var(--neon-orange))]"
-            style={{ boxShadow: '0 0 40px hsl(var(--neon-orange) / 0.2)' }}
+            className="relative max-w-md w-full p-6 rounded-lg border-2 bg-background/95 float-up border-red-900/80"
+            style={{ boxShadow: '0 0 40px rgba(127, 29, 29, 0.3)' }}
             onClick={(e) => e.stopPropagation()}
           >
             <p className="font-mono text-xs uppercase text-muted-foreground mb-2">{judgeModal.title} — 達成報告</p>
             <p className="text-sm text-muted-foreground mb-3">貴公の偉業、その熱量をここに刻め…</p>
             <Textarea
-              placeholder="貴公の偉業、その熱量をここに刻め…（50文字以上で具体的なエピソードを記述）"
+              placeholder="記憶に刻み込め。外へ放つ言葉だけが、汝を成長させる。短くとも可。"
               value={episodeInput}
               onChange={(e) => setEpisodeInput(e.target.value)}
-              className="min-h-[120px] font-mono text-sm resize-none mb-4"
+              className="min-h-[120px] font-mono text-sm resize-none mb-4 border-red-900/50 bg-stone-950/50 focus-visible:border-red-800 focus-visible:ring-red-800/50 placeholder:text-stone-600"
               disabled={isSubmitting}
             />
             {judgeError && (
@@ -212,13 +212,12 @@ export default function TrophyPage() {
               </Button>
               <Button
                 size="sm"
-                className="flex-1 font-mono gap-2"
-                style={{ backgroundColor: 'hsl(var(--neon-orange))', color: 'hsl(var(--background))' }}
+                className="flex-1 font-mono gap-2 bg-red-900 hover:bg-red-800 text-stone-100 border-0"
                 onClick={handleSubmitJudge}
                 disabled={isSubmitting}
               >
-                <Send className="w-4 h-4" />
-                {isSubmitting ? '審査中...' : '報告を提出'}
+                <Feather className="w-4 h-4" />
+                {isSubmitting ? '審査中...' : '誓約を果たす'}
               </Button>
             </div>
           </div>

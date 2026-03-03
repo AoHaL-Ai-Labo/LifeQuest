@@ -3,6 +3,8 @@
  * タイトル・ユーザー感想・AIクリアメッセージを保存し、/history で表示する
  */
 
+import type { QuestStats } from './quest-types'
+
 const STORAGE_KEY = 'quest-log:missionRecord'
 
 export interface MissionRecordItem {
@@ -11,6 +13,8 @@ export interface MissionRecordItem {
   clearMessage: string
   /** 記録日時（表示用） */
   clearedAt: string
+  /** クエストクリアで得たステータス（6属性）。AI生成クエスト用。任意。 */
+  stats?: QuestStats
 }
 
 export function getMissionRecord(): MissionRecordItem[] {

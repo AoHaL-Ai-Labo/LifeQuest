@@ -1,6 +1,6 @@
 'use client'
 
-import { ChevronDown, ChevronRight, Send } from 'lucide-react'
+import { ChevronDown, ChevronRight, Feather } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 
@@ -87,14 +87,14 @@ export function QuestFeedItem({
               {onReflectionChange && onSubmit && (
                 <>
                   <Textarea
-                    placeholder="やってみてどうだった？1文でOK"
+                    placeholder="記憶に刻み込め。外へ放つ言葉だけが、汝を成長させる。短くとも可。"
                     value={reflection}
                     onChange={(e) => onReflectionChange(e.target.value)}
-                    className="min-h-[48px] font-mono text-xs resize-none py-2"
+                    className="min-h-[48px] font-mono text-xs resize-none py-2 border-red-900/50 bg-stone-950/50 focus-visible:border-red-800 focus-visible:ring-red-800/50 placeholder:text-stone-600"
                     disabled={isSubmitting}
                   />
-                  <Button size="sm" className="w-full font-mono text-xs h-8 gap-1.5" onClick={onSubmit} disabled={isSubmitting}>
-                    <Send className="w-3.5 h-3.5" />
+                  <Button size="sm" className="w-full font-mono text-xs h-8 gap-1.5 bg-red-900 hover:bg-red-800 text-stone-100 border-0" onClick={onSubmit} disabled={isSubmitting}>
+                    <Feather className="w-3.5 h-3.5" />
                     {isSubmitting ? '送信中...' : submitLabel}
                   </Button>
                 </>

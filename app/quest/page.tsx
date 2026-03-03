@@ -1,10 +1,20 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useTransition } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { Flame, Settings, Radio, Send, ChevronDown, ChevronRight, Lock, Swords, ScrollText, Award, Sparkles, Skull, RotateCcw, Calendar, Moon, Repeat } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogFooter,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogAction,
+  AlertDialogCancel,
+} from '@/components/ui/alert-dialog'
 import { Textarea } from '@/components/ui/textarea'
 import { QuestFeedItem } from '@/components/quest-feed-item'
 import {
@@ -61,6 +71,7 @@ import {
   loadPlayerStatus,
   savePlayerStatus,
   addExpAndLevelUp,
+  MAX_LEVEL,
   getExpPerQuestClear,
   getClearHistory,
   pushClearHistory,
@@ -72,25 +83,33 @@ import {
   claimStreakMilestoneIfEligible,
   STREAK_MILESTONES,
   getClaimedStreakMilestones,
+  getDisplayRank,
   type PlayerStatus,
 } from '@/lib/player-status'
 import type { QuestTier, QuestPeriod } from '@/lib/quest-lock'
 import { isQuestComboUnlocked, getUnlockLevel, getNextUnlockForDifficulty, isTrialUnlocked, isAbyssUnlocked, isPeriodUnlocked, getPeriodUnlockLevel, isMonthlyEventUnlocked, isInvertedQuestUnlocked, MONTHLY_EVENT_UNLOCK_LEVEL, INVERTED_QUEST_UNLOCK_LEVEL, TRIAL_UNLOCK_LEVEL } from '@/lib/quest-unlock'
-import { isReborn, executeRebirth } from '@/lib/reborn'
+import { isReborn, executePrestige } from '@/lib/reborn'
 import { pushMissionRecord } from '@/lib/mission-record'
+import { getQuestPrimaryStatByTitle, initializeQuestCatalog } from '@/lib/quest-catalog'
+import { completeQuest } from '@/app/actions/userActions'
+import { getQuestCompletionStatus } from '@/app/actions/quest'
+import type { PrimaryStat } from '@/lib/quest-types'
 import { getCurrentSeason, SEASON_LABELS } from '@/lib/season'
+import type { PlayerStats } from '@/lib/player-status'
+import { getClassFromStats } from '@/lib/user-class'
 
 type ComboKey = string
 function comboKey(period: QuestPeriod, difficulty: QuestTier): ComboKey {
   return `${period}_${difficulty}`
 }
 
-function getUnlockedCombos(level: number, isRebornUser: boolean): Array<{ period: QuestPeriod; difficulty: QuestTier }> {
+function getUnlockedCombos(level: number, prestigeCount: number): Array<{ period: QuestPeriod; difficulty: QuestTier }> {
+  const isRebornUser = prestigeCount > 0
   const periods: QuestPeriod[] = ['daily', 'weekly', 'monthly']
   const difficulties: QuestTier[] = ['beginner', 'intermediate', 'advanced'].concat(isAbyssUnlocked(isRebornUser) ? ['abyss'] : [])
   return periods.flatMap((p) =>
     difficulties
-      .filter((d) => isPeriodUnlocked(level, p) && isQuestComboUnlocked(level, p, d, isRebornUser))
+      .filter((d) => isPeriodUnlocked(level, p) && isQuestComboUnlocked(level, p, d, isRebornUser, prestigeCount))
       .map((d) => ({ period: p, difficulty: d }))
   )
 }
@@ -111,8 +130,12 @@ const FALLBACK_QUESTS: Array<{ title: string; description: string; flavorText: s
   { title: '沈黙を破る契約', description: '知らない人に一声かけて、最低2分会話を続けよ。', flavorText: '魂を繋ぐ言葉よ、沈黙の壁を砕け。汝の声は、新たな契約の始まりなれば。' },
 ]
 
+/** クエスト型（DB由来の場合は id を持つ） */
+type QuestWithOptionalId = { title: string; description: string; flavorText?: string; id?: string }
+
 export default function QuestPage() {
   const pathname = usePathname()
+  const [isPending, startTransition] = useTransition()
   const [questsByCombo, setQuestsByCombo] = useState<Record<string, Array<{ title: string; description: string; flavorText?: string }>>>({})
   const [clearedByCombo, setClearedByCombo] = useState<Record<string, Record<number, string>>>({})
   const [questLockByCombo, setQuestLockByCombo] = useState<Record<string, { canFetch: boolean; nextUpdateMessage: string }>>({})
@@ -131,7 +154,7 @@ export default function QuestPage() {
   const [rerollModal, setRerollModal] = useState<{ comboKey: string; period: QuestPeriod; difficulty: QuestTier; index: number; quest: { title: string; description: string; flavorText?: string } } | null>(null)
   const [rerollConstraints, setRerollConstraints] = useState('')
   const [isRerolling, setIsRerolling] = useState(false)
-  const [playerStatus, setPlayerStatus] = useState<PlayerStatus>({ level: 1, exp: 0, rank: '死人', prefix: '', expToNext: 12, tier: 2 })
+  const [playerStatus, setPlayerStatus] = useState<PlayerStatus>({ level: 1, exp: 0, rank: '死人', prefix: '', prestigeCount: 0, expToNext: 12, tier: 2 })
   const [streakDays, setStreakDays] = useState(0)
   const [trialQuest, setTrialQuest] = useState<{ title: string; description: string; flavorText?: string } | null>(null)
   const [trialCleared, setTrialCleared] = useState<string | null>(null)
@@ -154,6 +177,9 @@ export default function QuestPage() {
   const [invertedLock, setInvertedLock] = useState({ canFetch: true, nextUpdateMessage: '' })
   const [isFetchingInverted, setIsFetchingInverted] = useState(false)
   const [invertedReflectionInput, setInvertedReflectionInput] = useState('')
+  const [showPrestigeConfirm, setShowPrestigeConfirm] = useState(false)
+  /** QuestHistory から動的算出した完了済みクエストID（バッチレス） */
+  const [completedQuestIdsFromServer, setCompletedQuestIdsFromServer] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     const onFled = (e: CustomEvent<{ pendingClearModal?: { message: string; questTitle: string; leveledUp?: boolean; newLevel?: number } | null }>) => {
@@ -169,7 +195,7 @@ export default function QuestPage() {
       const status = loadPlayerStatus()
       setPlayerStatus(status)
       setStreakDays(getStreakDays())
-      const combos = getUnlockedCombos(status.level, isReborn())
+      const combos = getUnlockedCombos(status.level, status.prestigeCount ?? 0)
       const nextQuests: Record<string, Array<{ title: string; description: string; flavorText?: string }>> = {}
       const nextCleared: Record<string, Record<number, string>> = {}
       const nextLock: Record<string, { canFetch: boolean; nextUpdateMessage: string }> = {}
@@ -214,8 +240,29 @@ export default function QuestPage() {
     }
   }, [])
 
+  // QuestHistory から完了状態を動的取得（バッチレス設計）
   useEffect(() => {
-    const combos = getUnlockedCombos(playerStatus.level, isReborn())
+    const ids = Object.values(questsByCombo).flatMap((qList) =>
+      (qList as Array<QuestWithOptionalId>).map((q) => q.id).filter((id): id is string => !!id)
+    )
+    if (ids.length === 0) return
+    getQuestCompletionStatus(ids).then((status) => {
+      setCompletedQuestIdsFromServer(new Set(Object.entries(status).filter(([, v]) => v).map(([k]) => k)))
+    })
+  }, [questsByCombo])
+
+  // クエストカタログをAPIから取得してキャッシュ初期化（primaryStat/stats lookup用）
+  useEffect(() => {
+    fetch('/api/quest/catalog')
+      .then((r) => (r.ok ? r.json() : []))
+      .then((arr: Array<{ title: string; stats: { str: number; dex: number; end: number; int: number; fai: number; arc: number }; primaryStat: string }>) => {
+        if (Array.isArray(arr) && arr.length > 0) initializeQuestCatalog(arr)
+      })
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    const combos = getUnlockedCombos(playerStatus.level, playerStatus.prestigeCount ?? 0)
     combos.forEach(({ period, difficulty }) => {
       const ck = comboKey(period, difficulty)
       const stored = loadFetchedQuests(period, difficulty)
@@ -235,7 +282,7 @@ export default function QuestPage() {
             if (getMockApiEnabled()) {
               data = await mockDelay({ quests: getMockQuestsForPeriod(period) })
             } else {
-              res = await fetch('/api/quest', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ period, difficulty }) })
+              res = await fetch('/api/quest', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ period, difficulty, prestigeCount: playerStatus.prestigeCount ?? 0 }) })
               data = await res.json().catch(() => ({}))
               if (!res.ok) throw new Error((data as { detail?: string; error?: string }).detail ?? (data as { detail?: string; error?: string }).error ?? `API error (${res.status})`)
             }
@@ -263,7 +310,7 @@ export default function QuestPage() {
   }, [playerStatus.level])
 
   useEffect(() => {
-    const combos = getUnlockedCombos(playerStatus.level, isReborn())
+    const combos = getUnlockedCombos(playerStatus.level, playerStatus.prestigeCount ?? 0)
     const iv = setInterval(() => {
       combos.forEach(({ period, difficulty }) => {
         const ck = comboKey(period, difficulty)
@@ -310,7 +357,7 @@ export default function QuestPage() {
   }, [playerStatus.level])
 
   useEffect(() => {
-    const combos = getUnlockedCombos(playerStatus.level, isReborn())
+    const combos = getUnlockedCombos(playerStatus.level, playerStatus.prestigeCount ?? 0)
     combos.forEach(({ period, difficulty }) => {
       const ck = comboKey(period, difficulty)
       const quests = questsByCombo[ck] ?? []
@@ -380,12 +427,17 @@ export default function QuestPage() {
     reflection: string,
     period: QuestPeriod,
     difficulty: QuestTier,
-    isExtra?: boolean
+    isExtra?: boolean,
+    stats?: { str: number; dex: number; end: number; int: number; fai: number; arc: number },
+    primaryStat?: PrimaryStat
   ) => {
-    pushMissionRecord({ questTitle, reflection, clearMessage })
+    pushMissionRecord({ questTitle, reflection, clearMessage, stats })
     const streakBonus = getStreakExpBonus(getStreakDays())
     const expGain = getExpPerQuestClear(playerStatus.level, period, difficulty, isExtra, false) + streakBonus
-    const { newStatus, leveledUp } = addExpAndLevelUp(playerStatus, expGain)
+    const questOptions = primaryStat
+      ? { primaryStat, period }
+      : undefined
+    const { newStatus, leveledUp } = addExpAndLevelUp(playerStatus, expGain, questOptions)
     const prevLevel = playerStatus.level
     const prevRank = playerStatus.rank
     console.log('[Debug: EXP]', {
@@ -409,11 +461,12 @@ export default function QuestPage() {
     return { leveledUp, newLevel: newStatus.level }
   }
 
-  const applyTrialClearProgress = (clearMessage: string, questTitle: string, reflection: string) => {
-    pushMissionRecord({ questTitle, reflection, clearMessage })
+  const applyTrialClearProgress = (clearMessage: string, questTitle: string, reflection: string, stats?: { str: number; dex: number; end: number; int: number; fai: number; arc: number }, primaryStat?: PrimaryStat) => {
+    pushMissionRecord({ questTitle, reflection, clearMessage, stats })
     const streakBonus = getStreakExpBonus(getStreakDays())
     const expGain = getExpPerQuestClear(playerStatus.level, 'weekly', 'advanced', false, true) + streakBonus
-    const { newStatus, leveledUp } = addExpAndLevelUp(playerStatus, expGain)
+    const questOptions = primaryStat ? { primaryStat, period: 'weekly' as const } : undefined
+    const { newStatus, leveledUp } = addExpAndLevelUp(playerStatus, expGain, questOptions)
     pushClearHistory(questTitle)
     incrementStreakIfNeeded()
     setStreakDays(getStreakDays())
@@ -422,11 +475,12 @@ export default function QuestPage() {
     return { leveledUp, newLevel: newStatus.level }
   }
 
-  const applyWeekendClearProgress = (clearMessage: string, questTitle: string, reflection: string) => {
-    pushMissionRecord({ questTitle, reflection, clearMessage })
+  const applyWeekendClearProgress = (clearMessage: string, questTitle: string, reflection: string, stats?: { str: number; dex: number; end: number; int: number; fai: number; arc: number }, primaryStat?: PrimaryStat) => {
+    pushMissionRecord({ questTitle, reflection, clearMessage, stats })
     const streakBonus = getStreakExpBonus(getStreakDays())
     const expGain = getExpPerQuestClear(playerStatus.level, 'weekly', 'intermediate', false, false, true) + streakBonus
-    const { newStatus, leveledUp } = addExpAndLevelUp(playerStatus, expGain)
+    const questOptions = primaryStat ? { primaryStat, period: 'weekly' as const } : undefined
+    const { newStatus, leveledUp } = addExpAndLevelUp(playerStatus, expGain, questOptions)
     pushClearHistory(questTitle)
     incrementStreakIfNeeded()
     setStreakDays(getStreakDays())
@@ -435,11 +489,12 @@ export default function QuestPage() {
     return { leveledUp, newLevel: newStatus.level }
   }
 
-  const applyMonthlyEventClearProgress = (clearMessage: string, questTitle: string, reflection: string) => {
-    pushMissionRecord({ questTitle, reflection, clearMessage })
+  const applyMonthlyEventClearProgress = (clearMessage: string, questTitle: string, reflection: string, stats?: { str: number; dex: number; end: number; int: number; fai: number; arc: number }, primaryStat?: PrimaryStat) => {
+    pushMissionRecord({ questTitle, reflection, clearMessage, stats })
     const streakBonus = getStreakExpBonus(getStreakDays())
     const expGain = getExpPerQuestClear(playerStatus.level, 'monthly', 'advanced', false, false, false, true) + streakBonus
-    const { newStatus, leveledUp } = addExpAndLevelUp(playerStatus, expGain)
+    const questOptions = primaryStat ? { primaryStat, period: 'monthly' as const } : undefined
+    const { newStatus, leveledUp } = addExpAndLevelUp(playerStatus, expGain, questOptions)
     pushClearHistory(questTitle)
     incrementStreakIfNeeded()
     setStreakDays(getStreakDays())
@@ -448,11 +503,12 @@ export default function QuestPage() {
     return { leveledUp, newLevel: newStatus.level }
   }
 
-  const applyInvertedClearProgress = (clearMessage: string, questTitle: string, reflection: string) => {
-    pushMissionRecord({ questTitle, reflection, clearMessage })
+  const applyInvertedClearProgress = (clearMessage: string, questTitle: string, reflection: string, stats?: { str: number; dex: number; end: number; int: number; fai: number; arc: number }, primaryStat?: PrimaryStat) => {
+    pushMissionRecord({ questTitle, reflection, clearMessage, stats })
     const streakBonus = getStreakExpBonus(getStreakDays())
     const expGain = getExpPerQuestClear(playerStatus.level, 'daily', 'beginner', false, false, false, false, true) + streakBonus
-    const { newStatus, leveledUp } = addExpAndLevelUp(playerStatus, expGain)
+    const questOptions = primaryStat ? { primaryStat, period: 'daily' as const } : undefined
+    const { newStatus, leveledUp } = addExpAndLevelUp(playerStatus, expGain, questOptions)
     pushClearHistory(questTitle)
     incrementStreakIfNeeded()
     setStreakDays(getStreakDays())
@@ -461,7 +517,7 @@ export default function QuestPage() {
     return { leveledUp, newLevel: newStatus.level }
   }
 
-  const handleSubmitReport = async (comboKey: ComboKey, period: QuestPeriod, difficulty: QuestTier, questIndex: number, quest: { title: string; description: string; flavorText?: string }) => {
+  const handleSubmitReport = async (comboKey: ComboKey, period: QuestPeriod, difficulty: QuestTier, questIndex: number, quest: QuestWithOptionalId) => {
     const refKey = `${comboKey}-${questIndex}`
     const reflection = reflectionInputs[refKey]?.trim()
     if (!reflection) { alert('感想を入力してください'); return }
@@ -486,7 +542,39 @@ export default function QuestPage() {
         return { ...p, [comboKey]: next }
       })
       setReflectionInputs((p) => ({ ...p, [refKey]: '' }))
-      const { leveledUp, newLevel } = applyClearProgress(message!, quest.title, reflection, period, difficulty)
+      let leveledUp: boolean
+      let newLevel: number
+      if (quest.id) {
+        const result = await completeQuest(quest.id)
+        if (!result.success) {
+          throw new Error(result.error ?? 'クエストの達成に失敗しました')
+        }
+        if (result.userData) {
+          savePlayerStatus({
+            level: result.userData.level,
+            exp: result.userData.currentExp,
+            rank: getDisplayRank(result.userData.level),
+            prefix: result.userData.prefix,
+            prestigeCount: result.userData.prestigeCount,
+            stats: result.userData.stats,
+            hiddenExp: result.userData.hiddenExp,
+          })
+          window.dispatchEvent(new CustomEvent(DEBUG_EVENT))
+        }
+        pushMissionRecord({ questTitle: quest.title, reflection, clearMessage: message!, stats: (quest as { stats?: { str: number; dex: number; end: number; int: number; fai: number; arc: number } }).stats })
+        pushClearHistory(quest.title)
+        incrementStreakIfNeeded()
+        setStreakDays(getStreakDays())
+        setPlayerStatus(loadPlayerStatus())
+        setCompletedQuestIdsFromServer((p) => new Set(p).add(quest.id))
+        leveledUp = result.leveledUp ?? false
+        newLevel = result.userData?.level ?? playerStatus.level
+      } else {
+        const primaryStat = (quest as { primaryStat?: PrimaryStat }).primaryStat ?? getQuestPrimaryStatByTitle(quest.title) ?? 'str'
+        const progress = applyClearProgress(message!, quest.title, reflection, period, difficulty, false, (quest as { stats?: { str: number; dex: number; end: number; int: number; fai: number; arc: number } }).stats, primaryStat)
+        leveledUp = progress.leveledUp
+        newLevel = progress.newLevel
+      }
       const milestoneResult = claimStreakMilestoneIfEligible(getStreakDays(), loadPlayerStatus())
       if (milestoneResult) {
         setPlayerStatus(milestoneResult.newStatus)
@@ -551,7 +639,8 @@ export default function QuestPage() {
       saveExtraQuestCleared(message, period, difficulty)
       setExtraQuestClearedByCombo((p) => ({ ...p, [comboKey]: message }))
       setExtraReflectionInputByCombo((p) => ({ ...p, [comboKey]: '' }))
-      const { leveledUp, newLevel } = applyClearProgress(message, quest.title, reflection, period, difficulty, true)
+      const primaryStat = (quest as { primaryStat?: PrimaryStat }).primaryStat ?? getQuestPrimaryStatByTitle(quest.title) ?? 'str'
+      const { leveledUp, newLevel } = applyClearProgress(message, quest.title, reflection, period, difficulty, true, (quest as { stats?: { str: number; dex: number; end: number; int: number; fai: number; arc: number } }).stats, primaryStat)
       const milestoneResult = claimStreakMilestoneIfEligible(getStreakDays(), loadPlayerStatus())
       if (milestoneResult) {
         setPlayerStatus(milestoneResult.newStatus)
@@ -600,7 +689,7 @@ export default function QuestPage() {
       if (getMockApiEnabled()) {
         data = await mockDelay({ quests: getMockQuestsForPeriod(period) })
       } else {
-        res = await fetch('/api/quest', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ period, difficulty }) })
+        res = await fetch('/api/quest', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ period, difficulty, prestigeCount: playerStatus.prestigeCount ?? 0 }) })
         data = await res.json().catch(() => ({}))
         if (!res.ok) throw new Error((data as { detail?: string; error?: string }).detail ?? (data as { detail?: string; error?: string }).error ?? `API error (${res.status})`)
       }
@@ -637,7 +726,7 @@ export default function QuestPage() {
         const res = await fetch('/api/quest', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ trial: true }),
+          body: JSON.stringify({ trial: true, prestigeCount: playerStatus.prestigeCount ?? 0 }),
         })
         const data = await res.json().catch(() => ({}))
         if (!res.ok) throw new Error((data as { detail?: string }).detail ?? 'API error')
@@ -677,7 +766,8 @@ export default function QuestPage() {
       saveTrialCleared(message)
       setTrialCleared(message)
       setTrialReflectionInput('')
-      const { leveledUp, newLevel } = applyTrialClearProgress(message, quest.title, reflection)
+      const primaryStat = (quest as { primaryStat?: PrimaryStat }).primaryStat ?? getQuestPrimaryStatByTitle(quest.title) ?? 'str'
+      const { leveledUp, newLevel } = applyTrialClearProgress(message, quest.title, reflection, (quest as { stats?: { str: number; dex: number; end: number; int: number; fai: number; arc: number } }).stats, primaryStat)
       const milestoneResult = claimStreakMilestoneIfEligible(getStreakDays(), loadPlayerStatus())
       if (milestoneResult) {
         setPlayerStatus(milestoneResult.newStatus)
@@ -725,7 +815,7 @@ export default function QuestPage() {
         const res = await fetch('/api/quest', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ weekend: true }),
+          body: JSON.stringify({ weekend: true, prestigeCount: playerStatus.prestigeCount ?? 0 }),
         })
         const data = await res.json().catch(() => ({}))
         if (!res.ok) throw new Error((data as { detail?: string }).detail ?? 'API error')
@@ -759,7 +849,7 @@ export default function QuestPage() {
         const res = await fetch('/api/quest', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ monthlyEvent: true }),
+          body: JSON.stringify({ monthlyEvent: true, prestigeCount: playerStatus.prestigeCount ?? 0 }),
         })
         const data = await res.json().catch(() => ({}))
         if (!res.ok) throw new Error((data as { detail?: string }).detail ?? 'API error')
@@ -799,7 +889,8 @@ export default function QuestPage() {
       saveWeekendChallengeCleared(message)
       setWeekendCleared(message)
       setWeekendReflectionInput('')
-      const { leveledUp, newLevel } = applyWeekendClearProgress(message, quest.title, reflection)
+      const primaryStat = (quest as { primaryStat?: PrimaryStat }).primaryStat ?? getQuestPrimaryStatByTitle(quest.title) ?? 'str'
+      const { leveledUp, newLevel } = applyWeekendClearProgress(message, quest.title, reflection, (quest as { stats?: { str: number; dex: number; end: number; int: number; fai: number; arc: number } }).stats, primaryStat)
       const milestoneResult = claimStreakMilestoneIfEligible(getStreakDays(), loadPlayerStatus())
       if (milestoneResult) {
         setPlayerStatus(milestoneResult.newStatus)
@@ -852,7 +943,7 @@ export default function QuestPage() {
       saveMonthlyEventCleared(message)
       setMonthlyEventCleared(message)
       setMonthlyEventReflectionInput('')
-      const { leveledUp, newLevel } = applyMonthlyEventClearProgress(message, quest.title, reflection)
+      const { leveledUp, newLevel } = applyMonthlyEventClearProgress(message, quest.title, reflection, (quest as { stats?: { str: number; dex: number; end: number; int: number; fai: number; arc: number } }).stats)
       const milestoneResult = claimStreakMilestoneIfEligible(getStreakDays(), loadPlayerStatus())
       if (milestoneResult) {
         setPlayerStatus(milestoneResult.newStatus)
@@ -935,7 +1026,8 @@ export default function QuestPage() {
       saveInvertedQuestCleared(message)
       setInvertedCleared(message)
       setInvertedReflectionInput('')
-      const { leveledUp, newLevel } = applyInvertedClearProgress(message, quest.title, reflection)
+      const primaryStat = (quest as { primaryStat?: PrimaryStat }).primaryStat ?? getQuestPrimaryStatByTitle(quest.title) ?? 'str'
+      const { leveledUp, newLevel } = applyInvertedClearProgress(message, quest.title, reflection, (quest as { stats?: { str: number; dex: number; end: number; int: number; fai: number; arc: number } }).stats, primaryStat)
       const milestoneResult = claimStreakMilestoneIfEligible(getStreakDays(), loadPlayerStatus())
       if (milestoneResult) {
         setPlayerStatus(milestoneResult.newStatus)
@@ -1018,15 +1110,36 @@ export default function QuestPage() {
     }
   }
 
-  const isRebornUser = isReborn()
-  const unlockedCombos = getUnlockedCombos(playerStatus.level, isRebornUser)
+  const prestigeCount = playerStatus.prestigeCount ?? 0
+  const isRebornUser = prestigeCount > 0
+  const unlockedCombos = getUnlockedCombos(playerStatus.level, prestigeCount)
   const firstCombo = unlockedCombos[0]
   const defaultPeriod = firstCombo?.period ?? 'daily'
   const defaultDifficulty = firstCombo?.difficulty ?? 'beginner'
   const statusLabel = playerStatus.prefix ? `【${playerStatus.prefix}】 ${playerStatus.rank}` : playerStatus.rank
   const showTutorialEnd = playerStatus.tier === 3
   const expLabel = isRebornUser ? '業' : 'EXP'
-  const showRebirthButton = playerStatus.level >= 99
+  const showPrestigeButton = playerStatus.level >= MAX_LEVEL
+
+  const displayStats = playerStatus.stats ?? { str: 10, dex: 10, end: 10, int: 10, fai: 10, arc: 10 }
+  const { userClass, dominantStatForIcon } = getClassFromStats(displayStats)
+  const AURA_BY_STAT: Record<string, string> = {
+    str: 'bg-gradient-to-br from-red-900/40 to-black',
+    dex: 'bg-gradient-to-br from-emerald-900/40 to-black',
+    end: 'bg-gradient-to-br from-stone-700/40 to-black',
+    int: 'bg-gradient-to-br from-blue-900/40 to-black',
+    fai: 'bg-gradient-to-br from-yellow-900/40 to-black',
+    arc: 'bg-gradient-to-br from-purple-900/40 to-black',
+  }
+  const auraClass = dominantStatForIcon ? AURA_BY_STAT[dominantStatForIcon] : 'bg-gradient-to-br from-zinc-800/40 to-black'
+  const STAT_LABELS: Record<string, string> = {
+    str: '筋力',
+    dex: '技量',
+    end: '持久力',
+    int: '理力',
+    fai: '信仰',
+    arc: '神秘',
+  }
 
   return (
     <div className="min-h-screen bg-background text-foreground p-4 md:p-6 pt-16 pb-4" data-tier={playerStatus.tier}>
@@ -1070,24 +1183,51 @@ export default function QuestPage() {
               </Link>
             </div>
           </div>
-          {showRebirthButton && (
-            <Button
-              onClick={() => { if (confirm('輪廻の転生を実行しますか？レベル1にリセットされますが、トロフィーは引き継がれます。')) executeRebirth() }}
-              className="w-full font-mono font-bold gap-2 border-2 border-amber-500/80 text-amber-500 hover:bg-amber-500/20 hover:text-amber-400 transition-all"
-              variant="outline"
-            >
-              <RotateCcw className="w-5 h-5" />
-              転生（Rebirth）
-            </Button>
+          {showPrestigeButton && (
+            <>
+              <Button
+                onClick={() => setShowPrestigeConfirm(true)}
+                className="w-full font-mono font-bold gap-2 border-2 border-red-900/80 bg-red-950/50 text-red-200 hover:bg-red-900/50 hover:text-red-100 hover:border-red-800 transition-all"
+                variant="outline"
+              >
+                <Flame className="w-5 h-5" />
+                火を継ぐ（転生する）
+              </Button>
+              <AlertDialog open={showPrestigeConfirm} onOpenChange={setShowPrestigeConfirm}>
+                <AlertDialogContent className="border-red-900/60 bg-stone-950">
+                  <AlertDialogHeader>
+                    <AlertDialogTitle className="font-serif text-lg text-stone-200">
+                      火を継ぐ — 転生の誓約
+                    </AlertDialogTitle>
+                    <AlertDialogDescription className="font-mono text-sm text-stone-400 leading-relaxed space-y-2">
+                      <p>火を継げば、汝は再び Lv1 の灰より甦る。</p>
+                      <p>トロフィーと解放の証は引き継がれよう。しかし、蓄えし業（EXP）は全て消え入る。</p>
+                      <p className="text-red-300/90 pt-2 font-serif italic">この誓い、本当に宜しいか？</p>
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter className="gap-2 sm:gap-0">
+                    <AlertDialogCancel className="border-stone-700 bg-stone-900/50 text-stone-300 hover:bg-stone-800/50">
+                      戻る
+                    </AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() => executePrestige()}
+                      className="bg-red-900 hover:bg-red-800 text-stone-100 border-0"
+                    >
+                      火を継ぐ
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </>
           )}
-          {playerStatus.level < 99 && (
+          {playerStatus.level < MAX_LEVEL && (
             <div className="space-y-1">
               <div className="flex justify-between text-[10px] font-mono text-muted-foreground">
                 <span>{expLabel} {playerStatus.exp}/{playerStatus.expToNext}</span>
                 <span className="text-[hsl(var(--neon-orange))]">
-                  あと{getQuestsToNextLevel(playerStatus, defaultPeriod, defaultDifficulty, getStreakExpBonus(streakDays))}クエストでLv{playerStatus.level + 1}
-                  {getNextUnlockForDifficulty(playerStatus.level, defaultPeriod, defaultDifficulty)?.level === playerStatus.level + 1 && (
-                    <span className="ml-1">（{getNextUnlockForDifficulty(playerStatus.level, defaultPeriod, defaultDifficulty)?.label}解放）</span>
+                  あと{getQuestsToNextLevel(playerStatus, defaultPeriod, defaultDifficulty, getStreakExpBonus(streakDays))}クエストでLv{Math.min(playerStatus.level + 1, MAX_LEVEL)}
+                  {getNextUnlockForDifficulty(playerStatus.level, defaultPeriod, defaultDifficulty, prestigeCount)?.level === playerStatus.level + 1 && (
+                    <span className="ml-1">（{getNextUnlockForDifficulty(playerStatus.level, defaultPeriod, defaultDifficulty, prestigeCount)?.label}解放）</span>
                   )}
                 </span>
               </div>
@@ -1100,6 +1240,56 @@ export default function QuestPage() {
             </div>
           )}
         </header>
+
+        {/* ステータス＆称号パネル（ダークソウル風・称号オーラ） */}
+        <div
+          className={`p-4 rounded-sm border border-stone-600/60 transition-colors duration-1000 ${auraClass}`}
+          style={{
+            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03), 0 2px 8px rgba(0,0,0,0.4)',
+          }}
+        >
+          <div className="font-serif text-center mb-3">
+            <p
+              className="text-lg font-bold tracking-wider"
+              style={{
+                color: 'rgba(180, 140, 90, 0.95)',
+                textShadow: '0 0 12px rgba(180, 140, 90, 0.3), 1px 1px 2px rgba(0,0,0,0.8)',
+              }}
+            >
+              {userClass}
+            </p>
+            <p className="text-[10px] text-stone-500 font-mono tracking-widest uppercase mt-0.5">
+              称号
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-x-6 gap-y-1 font-serif text-sm">
+            {(['str', 'dex', 'end', 'int', 'fai', 'arc'] as const).map((key) => (
+              <div
+                key={key}
+                className="flex justify-between items-baseline border-b border-stone-700/40 pb-1"
+              >
+                <span
+                  className="tracking-wider"
+                  style={{
+                    color: 'rgba(160, 130, 85, 0.9)',
+                    textShadow: '0 1px 2px rgba(0,0,0,0.5)',
+                  }}
+                >
+                  {STAT_LABELS[key]}
+                </span>
+                <span
+                  className="font-bold tabular-nums"
+                  style={{
+                    color: 'rgba(200, 170, 120, 0.95)',
+                    textShadow: '0 0 8px rgba(180, 150, 100, 0.2)',
+                  }}
+                >
+                  {displayStats[key] ?? 10}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
 
         {hasActiveSingularity && (
           <button
@@ -1151,16 +1341,18 @@ export default function QuestPage() {
                   </button>
                 )}
                 {quests.length > 0 && (() => {
-                  const items = quests.map((q, i) => ({
-                    id: `${ck}-${i}`,
-                    idx: i,
-                    quest: rerolls[i] ?? q,
-                    cleared: cleared[i],
-                  }))
-                  const inProgress = items.filter((x) => !x.cleared)
-                  const completed = items.filter((x) => x.cleared)
+                  const items = quests.map((q, i) => {
+                    const quest = (rerolls[i] ?? q) as QuestWithOptionalId
+                    const fromServer = quest.id ? completedQuestIdsFromServer.has(quest.id) : false
+                    const fromLocal = cleared[i]
+                    const isCleared = fromServer || !!fromLocal
+                    const clearedMessage = typeof fromLocal === 'string' ? fromLocal : fromServer ? '達成済' : undefined
+                    return { id: `${ck}-${i}`, idx: i, quest, isCleared, clearedMessage }
+                  })
+                  const inProgress = items.filter((x) => !x.isCleared)
+                  const completed = items.filter((x) => x.isCleared)
                   const sorted = [...inProgress, ...completed]
-                  return sorted.map(({ id, idx, quest, cleared: c }) => (
+                  return sorted.map(({ id, idx, quest, isCleared, clearedMessage }) => (
                     <QuestFeedItem
                       key={id}
                       id={id}
@@ -1171,12 +1363,12 @@ export default function QuestPage() {
                       onToggle={() => setExpandedQuestId((x) => (x === id ? null : id))}
                       flavorText={quest.flavorText}
                       description={quest.description}
-                      isCleared={!!c}
-                      clearedMessage={typeof c === 'string' ? c : undefined}
+                      isCleared={isCleared}
+                      clearedMessage={clearedMessage}
                       reflection={reflectionInputs[`${ck}-${idx}`]}
                       onReflectionChange={(v) => setReflectionInputs((p) => ({ ...p, [`${ck}-${idx}`]: v }))}
-                      onSubmit={() => handleSubmitReport(ck, period, difficulty, idx, quest)}
-                      isSubmitting={isSubmittingReport === `${ck}-${idx}`}
+                      onSubmit={() => startTransition(() => { void handleSubmitReport(ck, period, difficulty, idx, quest) })}
+                      isSubmitting={isSubmittingReport === `${ck}-${idx}` || isPending}
                       onReroll={() => setRerollModal({ comboKey: ck, period, difficulty, index: idx, quest })}
                       canReroll={!rerolls[idx]}
                     />
@@ -1201,7 +1393,7 @@ export default function QuestPage() {
                     onReflectionChange={(v) => setExtraReflectionInputByCombo((p) => ({ ...p, [ck]: v }))}
                     onSubmit={() => handleSubmitExtraReport(ck, period, difficulty, extraQuest)}
                     isSubmitting={isSubmittingReport === `extra-${ck}`}
-                    submitLabel={`報告を提出（+50% ${expLabel}）`}
+                    submitLabel={`誓約を果たす（+50% ${expLabel}）`}
                   />
                 )}
               </div>
@@ -1236,7 +1428,7 @@ export default function QuestPage() {
                   onReflectionChange={setWeekendReflectionInput}
                   onSubmit={() => handleSubmitWeekendReport(weekendQuest)}
                   isSubmitting={isSubmittingReport === 'weekend'}
-                  submitLabel={`報告を提出（+30 ${expLabel}）`}
+                  submitLabel={`誓約を果たす（+30 ${expLabel}）`}
                 />
               )}
             </>
@@ -1270,7 +1462,7 @@ export default function QuestPage() {
                   onReflectionChange={setMonthlyEventReflectionInput}
                   onSubmit={() => handleSubmitMonthlyEventReport(monthlyEventQuest)}
                   isSubmitting={isSubmittingReport === 'monthlyEvent'}
-                  submitLabel={`報告を提出（+35 ${expLabel}）`}
+                  submitLabel={`誓約を果たす（+35 ${expLabel}）`}
                 />
               )}
             </>
@@ -1304,7 +1496,7 @@ export default function QuestPage() {
                   onReflectionChange={setInvertedReflectionInput}
                   onSubmit={() => handleSubmitInvertedReport(invertedQuest)}
                   isSubmitting={isSubmittingReport === 'inverted'}
-                  submitLabel={`報告を提出（+25 ${expLabel}）`}
+                  submitLabel={`誓約を果たす（+25 ${expLabel}）`}
                 />
               )}
             </>
@@ -1338,15 +1530,15 @@ export default function QuestPage() {
                   onReflectionChange={setTrialReflectionInput}
                   onSubmit={() => handleSubmitTrialReport(trialQuest)}
                   isSubmitting={isSubmittingReport === 'trial'}
-                  submitLabel={`報告を提出（+40 ${expLabel}）`}
+                  submitLabel={`誓約を果たす（+40 ${expLabel}）`}
                 />
               )}
             </>
           )}
 
-          {getNextUnlockForDifficulty(playerStatus.level, defaultPeriod, defaultDifficulty) && (
+          {getNextUnlockForDifficulty(playerStatus.level, defaultPeriod, defaultDifficulty, prestigeCount) && (
             <div className="py-1.5 px-3 text-[10px] text-gray-600 font-mono border-t border-border/30">
-              🔒 Lv{getNextUnlockForDifficulty(playerStatus.level, defaultPeriod, defaultDifficulty)?.level}で{getNextUnlockForDifficulty(playerStatus.level, defaultPeriod, defaultDifficulty)?.label}解放
+              🔒 Lv{getNextUnlockForDifficulty(playerStatus.level, defaultPeriod, defaultDifficulty, prestigeCount)?.level}で{getNextUnlockForDifficulty(playerStatus.level, defaultPeriod, defaultDifficulty, prestigeCount)?.label}解放
             </div>
           )}
         </div>

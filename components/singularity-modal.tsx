@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
-import { Send } from 'lucide-react'
+import { Feather } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   loadSingularityState,
@@ -313,10 +313,10 @@ export function SingularityModal() {
             {phase === 'active' && (
               <div className="space-y-2">
                 <Textarea
-                  placeholder="実行後の感想を1文で"
+                  placeholder="記憶に刻み込め。外へ放つ言葉だけが、汝を成長させる。短くとも可。"
                   value={reflection}
                   onChange={(e) => setReflection(e.target.value)}
-                  className="min-h-[60px] font-mono text-sm resize-none bg-black/50 border-red-900/50"
+                  className="min-h-[60px] font-mono text-sm resize-none bg-stone-950/50 border-red-900/50 focus-visible:border-red-800 focus-visible:ring-red-800/50 placeholder:text-stone-600"
                   disabled={isSubmitting}
                 />
                 <Button
@@ -324,8 +324,8 @@ export function SingularityModal() {
                   disabled={!reflection.trim() || isSubmitting}
                   className="w-full font-mono gap-2 bg-red-900 hover:bg-red-800 text-red-100"
                 >
-                  <Send className="w-4 h-4" />
-                  {isSubmitting ? '送信中...' : '完了を報告'}
+                  <Feather className="w-4 h-4" />
+                  {isSubmitting ? '送信中...' : '誓約を果たす'}
                 </Button>
                 <button
                   type="button"

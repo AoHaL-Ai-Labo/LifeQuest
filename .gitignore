@@ -3,8 +3,13 @@ __v0_runtime_loader.js
 __v0_devtools.tsx
 __v0_jsx-dev-runtime.ts
 
+# Serwist PWA
+public/sw.js
+public/swe-worker*
+
 # Common ignores
 node_modules/
+prisma/dev.db
 .next/
 .env
 .env*.local

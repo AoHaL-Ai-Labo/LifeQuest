@@ -1,8 +1,9 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
 
 import './globals.css'
 import { LayoutClient } from '@/components/layout-client'
+import { SerwistProviderWrapper } from './serwist'
 
 const geistSans = Geist({
   subsets: ['latin'],
@@ -17,6 +18,23 @@ export const metadata: Metadata = {
   title: 'ライフクエスト - 混沌ミッショントラッカー',
   description: 'あなたのタクティカル・リアルライフRPGクエストトラッカー',
   generator: 'v0.app',
+  applicationName: 'ライフクエスト',
+  manifest: '/manifest.webmanifest',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'ライフクエスト',
+  },
+  icons: {
+    apple: '/icon-192x192.png',
+  },
+  formatDetection: {
+    telephone: false,
+  },
+}
+
+export const viewport: Viewport = {
+  themeColor: '#1c1917',
 }
 
 export default function RootLayout({
@@ -27,7 +45,9 @@ export default function RootLayout({
   return (
     <html lang="ja" className="dark">
       <body className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased`}>
-        <LayoutClient>{children}</LayoutClient>
+        <SerwistProviderWrapper>
+          <LayoutClient>{children}</LayoutClient>
+        </SerwistProviderWrapper>
       </body>
     </html>
   )

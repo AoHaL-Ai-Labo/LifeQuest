@@ -54,13 +54,15 @@ export const UNLOCK_MATRIX: Record<QuestPeriod, Partial<Record<QuestDifficulty, 
   },
 }
 
-/** 指定の（期間, 難易度）が解放されているか */
+/** 指定の（期間, 難易度）が解放されているか。prestigeCount > 0 なら強くてニューゲームとして全解放 */
 export function isQuestComboUnlocked(
   level: number,
   period: QuestPeriod,
   difficulty: QuestDifficulty,
-  isRebornUser?: boolean
+  isRebornUser?: boolean,
+  prestigeCount?: number
 ): boolean {
+  if ((prestigeCount ?? 0) > 0) return true
   if (difficulty === 'abyss') return isAbyssUnlocked(isRebornUser ?? false)
   const lv = UNLOCK_MATRIX[period]?.[difficulty as 'beginner' | 'intermediate' | 'advanced']
   return lv !== undefined && level >= lv
@@ -89,12 +91,14 @@ export function getPeriodUnlockLevel(period: QuestPeriod): number {
   return PERIOD_UNLOCK_LEVELS[period]
 }
 
-/** 現在の難易度の次に解放される難易度の情報。既に全解放ならnull */
+/** 現在の難易度の次に解放される難易度の情報。既に全解放ならnull。prestigeCount > 0 なら全解放のためnull */
 export function getNextUnlockForDifficulty(
   level: number,
   period: QuestPeriod,
-  currentDifficulty: QuestDifficulty
+  currentDifficulty: QuestDifficulty,
+  prestigeCount?: number
 ): { level: number; label: string } | null {
+  if ((prestigeCount ?? 0) > 0) return null
   const order: QuestDifficulty[] = ['beginner', 'intermediate', 'advanced']
   const idx = order.indexOf(currentDifficulty)
   if (idx >= 2 || currentDifficulty === 'abyss') return null

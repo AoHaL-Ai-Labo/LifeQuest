@@ -1,0 +1,59 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// クエストのカタログ（マスターデータ）
+model Quest {
+  id          String   @id
+  title       String
+  description String?
+  period      String   // daily, weekly, monthly
+  difficulty  String   // beginner, intermediate, advanced, weekly, monthly
+  primaryStat String
+  statsExp    String   // JSON文字列で獲得ステータスを保持
+  flavorTexts String   // JSON配列でフレーバーテキストを保持
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  histories QuestHistory[]
+}
+
+/// ユーザーのセーブデータ
+model SaveData {
+  id         String   @id @default(uuid())
+  level      Int      @default(1)
+  currentExp Int      @default(0)
+  stats      String   // JSON文字列で各属性の値を保持
+  hiddenExp  String   @default("{\"str\":0,\"dex\":0,\"end\":0,\"int\":0,\"fai\":0,\"arc\":0}") // JSON文字列で努力値を保持
+  prefix     String   @default("")
+  prestigeCount Int    @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+/// クエストクリア履歴（トランザクション）
+model QuestHistory {
+  id         String   @id @default(uuid())
+  questId    String
+  completedAt DateTime @default(now())
+
+  quest Quest @relation(fields: [questId], references: [id])
+}
+
+/// 未知の試練（AI生成）の日次キャッシュ
+model UnknownQuestDaily {
+  id        String   @id @default(uuid())
+  date      String   @unique // YYYY-MM-DD
+  questId1  String
+  questId2  String
+  questId3  String
+  createdAt DateTime @default(now())
+}

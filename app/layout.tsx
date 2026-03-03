@@ -19,7 +19,7 @@ export const metadata: Metadata = {
   description: 'あなたのタクティカル・リアルライフRPGクエストトラッカー',
   generator: 'v0.app',
   applicationName: 'ライフクエスト',
-  manifest: '/manifest.webmanifest',
+  manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',

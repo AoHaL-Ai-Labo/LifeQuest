@@ -4,6 +4,7 @@
  * クライアント: APIで取得したデータをキャッシュして同期 lookup
  */
 import { prisma } from './prisma'
+import { parseQuestStatsExp } from './save-data-utils'
 import type { PrimaryStat, QuestStats } from './quest-types'
 
 export type { PrimaryStat, QuestStats }
@@ -15,24 +16,6 @@ function matchesDifficulty(period: string, difficulty: string | undefined, qPeri
   if (period === 'weekly') return qDifficulty === 'weekly'
   if (period === 'monthly') return qDifficulty === 'monthly'
   return qDifficulty === difficulty
-}
-
-/** statsExp をパースして QuestStats に復元 */
-function parseStats(statsExp: string): QuestStats {
-  try {
-    const parsed = JSON.parse(statsExp) as Record<string, number>
-    const n = (v: unknown) => Math.max(0, Number(v) || 0)
-    return {
-      str: n(parsed.str),
-      dex: n(parsed.dex),
-      end: n(parsed.end),
-      int: n(parsed.int),
-      fai: n(parsed.fai),
-      arc: n(parsed.arc),
-    }
-  } catch {
-    return { str: 0, dex: 0, end: 0, int: 0, fai: 0, arc: 0 }
-  }
 }
 
 /** フレーバーテキストから1つをランダム選択 */
@@ -82,7 +65,7 @@ export async function sampleQuestsFromDb(
     flavorText: pickFlavorText(q.flavorTexts),
     period: q.period,
     difficulty: q.difficulty,
-    stats: parseStats(q.statsExp),
+    stats: parseQuestStatsExp(q.statsExp),
     primaryStat: q.primaryStat as PrimaryStat,
   }))
 }
@@ -92,7 +75,7 @@ export async function sampleQuestsFromDb(
  */
 export async function getQuestStatsByTitleFromDb(title: string): Promise<QuestStats | null> {
   const q = await prisma.quest.findFirst({ where: { title } })
-  return q ? parseStats(q.statsExp) : null
+  return q ? parseQuestStatsExp(q.statsExp) : null
 }
 
 /**
@@ -116,7 +99,7 @@ export async function getFullQuestCatalog(): Promise<
     description: q.description ?? '',
     period: q.period,
     difficulty: q.difficulty,
-    stats: parseStats(q.statsExp),
+    stats: parseQuestStatsExp(q.statsExp),
     primaryStat: q.primaryStat as PrimaryStat,
   }))
 }

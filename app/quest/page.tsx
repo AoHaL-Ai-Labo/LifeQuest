@@ -262,7 +262,7 @@ export default function QuestPage() {
 
   // クエストカタログをAPIから取得してキャッシュ初期化（primaryStat/stats lookup用）
   useEffect(() => {
-    fetch('/api/quest/catalog')
+    fetch('/api/quest/catalog', { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : []))
       .then((arr: Array<{ title: string; stats: { str: number; dex: number; end: number; int: number; fai: number; arc: number }; primaryStat: string }>) => {
         if (Array.isArray(arr) && arr.length > 0) initializeQuestCatalog(arr)
@@ -591,7 +591,7 @@ export default function QuestPage() {
         setStreakMilestoneModal({ milestone: milestoneResult.milestone, expGained: milestoneResult.expGained })
       }
       const clearResult = { message: message!, questTitle: quest.title, leveledUp, newLevel }
-      if (shouldTriggerSingularity()) {
+      if (shouldTriggerSingularity(newLevel)) {
         window.dispatchEvent(new CustomEvent(SINGULARITY_TRIGGER_EVENT, { detail: { pendingClearModal: clearResult, sourcePeriod: period, sourceDifficulty: difficulty } }))
       } else {
         setClearMessageModal(clearResult)
@@ -657,7 +657,7 @@ export default function QuestPage() {
         setStreakMilestoneModal({ milestone: milestoneResult.milestone, expGained: milestoneResult.expGained })
       }
       const clearResult = { message, questTitle: quest.title, leveledUp, newLevel }
-      if (shouldTriggerSingularity()) {
+      if (shouldTriggerSingularity(newLevel)) {
         window.dispatchEvent(new CustomEvent(SINGULARITY_TRIGGER_EVENT, { detail: { pendingClearModal: clearResult, sourcePeriod: period, sourceDifficulty: difficulty } }))
       } else {
         setClearMessageModal(clearResult)
@@ -784,7 +784,7 @@ export default function QuestPage() {
         setStreakMilestoneModal({ milestone: milestoneResult.milestone, expGained: milestoneResult.expGained })
       }
       const clearResult = { message, questTitle: quest.title, leveledUp, newLevel }
-      if (shouldTriggerSingularity()) {
+      if (shouldTriggerSingularity(newLevel)) {
         window.dispatchEvent(new CustomEvent(SINGULARITY_TRIGGER_EVENT, { detail: { pendingClearModal: clearResult, sourcePeriod: 'weekly', sourceDifficulty: 'advanced' } }))
       } else {
         setClearMessageModal(clearResult)
@@ -907,7 +907,7 @@ export default function QuestPage() {
         setStreakMilestoneModal({ milestone: milestoneResult.milestone, expGained: milestoneResult.expGained })
       }
       const clearResult = { message, questTitle: quest.title, leveledUp, newLevel }
-      if (shouldTriggerSingularity()) {
+      if (shouldTriggerSingularity(newLevel)) {
         window.dispatchEvent(new CustomEvent(SINGULARITY_TRIGGER_EVENT, { detail: { pendingClearModal: clearResult, sourcePeriod: 'weekly', sourceDifficulty: 'intermediate' } }))
       } else {
         setClearMessageModal(clearResult)
@@ -960,7 +960,7 @@ export default function QuestPage() {
         setStreakMilestoneModal({ milestone: milestoneResult.milestone, expGained: milestoneResult.expGained })
       }
       const clearResult = { message, questTitle: quest.title, leveledUp, newLevel }
-      if (shouldTriggerSingularity()) {
+      if (shouldTriggerSingularity(newLevel)) {
         window.dispatchEvent(new CustomEvent(SINGULARITY_TRIGGER_EVENT, { detail: { pendingClearModal: clearResult, sourcePeriod: 'monthly', sourceDifficulty: 'advanced' } }))
       } else {
         setClearMessageModal(clearResult)
@@ -1044,7 +1044,7 @@ export default function QuestPage() {
         setStreakMilestoneModal({ milestone: milestoneResult.milestone, expGained: milestoneResult.expGained })
       }
       const clearResult = { message, questTitle: quest.title, leveledUp, newLevel }
-      if (shouldTriggerSingularity()) {
+      if (shouldTriggerSingularity(newLevel)) {
         window.dispatchEvent(new CustomEvent(SINGULARITY_TRIGGER_EVENT, { detail: { pendingClearModal: clearResult, sourcePeriod: 'daily', sourceDifficulty: 'beginner' } }))
       } else {
         setClearMessageModal(clearResult)

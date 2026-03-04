@@ -1,21 +1,40 @@
 /**
  * クエスト完了状態の動的算出（QuestHistory を Single Source of Truth とするバッチレス設計）
- * リセット境界日時は JST（Asia/Tokyo）で算出し、DB の UTC と比較する
+ * リセット境界日時は必ず日本時間（Asia/Tokyo）の深夜0時を基準に算出。
+ * Vercel等のUTC環境でも正しく動作するよう、明示的にAsia/Tokyoで計算する。
  */
 import { prisma } from './prisma'
 
-/** JST の現在日付文字列 (YYYY-MM-DD) を取得 */
+const JST_OFFSET_MS = 9 * 60 * 60 * 1000
+
+/**
+ * 現在の日本時間の日付文字列 (YYYY-MM-DD) を取得
+ * toLocaleDateString('en-CA', { timeZone: 'Asia/Tokyo' }) でUTC環境でも正しくJST日付を取得
+ */
 function getJSTDateString(): string {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Tokyo' })
 }
 
-/** JST (y,m,d) 00:00:00 を UTC の Date に変換（Prisma DateTime 比較用） */
+/**
+ * 日本時間 (y,m,d) 00:00:00 を UTC の Date に変換
+ * JST = UTC+9 のため、JST 00:00 = UTC 前日 15:00
+ * Prisma の DateTime は DB で UTC として保存されるため、比較用に UTC Date を返す
+ */
 function jstMidnightToUTC(y: number, m: number, d: number): Date {
   return new Date(Date.UTC(y, m - 1, d - 1, 15, 0, 0, 0))
 }
 
 /**
- * リセット境界日時を算出（JST 基準、UTC で返却）
+ * 日本時間での曜日を取得（0=日, 1=月, ..., 6=土）
+ * 12:00 UTC の時点で JST は 21:00 同日となるため、その getUTCDay() で正しい JST 曜日を得られる
+ */
+function getJSTDayOfWeek(y: number, m: number, d: number): number {
+  const utcNoon = new Date(Date.UTC(y, m - 1, d, 12, 0, 0, 0))
+  return utcNoon.getUTCDay()
+}
+
+/**
+ * リセット境界日時を算出（日本時間 Asia/Tokyo 基準、UTC Date で返却）
  * - startOfToday: 今日 00:00:00 JST
  * - startOfWeek: 今週月曜 00:00:00 JST（週の始まりを月曜とする）
  * - startOfMonth: 今月1日 00:00:00 JST
@@ -30,16 +49,14 @@ export function getResetBoundaries(): {
 
   const startOfToday = jstMidnightToUTC(y, m, d)
 
-  const jstMidnight = jstMidnightToUTC(y, m, d)
-  const jstDayOfWeek = new Date(jstMidnight.getTime() + 9 * 60 * 60 * 1000).getUTCDay()
+  const jstDayOfWeek = getJSTDayOfWeek(y, m, d)
   const daysSinceMonday = (jstDayOfWeek - 1 + 7) % 7
-  const mondayTimestamp = jstMidnight.getTime() - daysSinceMonday * 24 * 60 * 60 * 1000
-  const mondayInJST = new Date(mondayTimestamp + 9 * 60 * 60 * 1000)
-  const startOfWeek = jstMidnightToUTC(
-    mondayInJST.getUTCFullYear(),
-    mondayInJST.getUTCMonth() + 1,
-    mondayInJST.getUTCDate()
-  )
+  const mondayTimestamp = startOfToday.getTime() - daysSinceMonday * 24 * 60 * 60 * 1000
+  const mondayPlusOffset = new Date(mondayTimestamp + JST_OFFSET_MS)
+  const mY = mondayPlusOffset.getUTCFullYear()
+  const mM = mondayPlusOffset.getUTCMonth() + 1
+  const mD = mondayPlusOffset.getUTCDate()
+  const startOfWeek = jstMidnightToUTC(mY, mM, mD)
 
   const startOfMonth = jstMidnightToUTC(y, m, 1)
 

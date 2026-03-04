@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { getFullQuestCatalog } from '@/lib/quest-catalog'
 
+export const dynamic = 'force-dynamic'
+
 /**
  * GET /api/quest/catalog
  * 全クエストカタログを返す（クライアントのキャッシュ初期化用）

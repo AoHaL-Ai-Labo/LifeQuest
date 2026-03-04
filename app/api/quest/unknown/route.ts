@@ -1,4 +1,6 @@
 import { google } from '@ai-sdk/google'
+
+export const dynamic = 'force-dynamic'
 import { generateObject } from 'ai'
 import { z } from 'zod'
 import { NextResponse } from 'next/server'
@@ -6,6 +8,7 @@ import { prisma } from '@/lib/prisma'
 import { getUserData } from '@/app/actions/userActions'
 import { getCompletedQuestIds } from '@/lib/quest-completion'
 import { getTendencyForPrompt } from '@/lib/user-tendency'
+import { parseQuestStatsExp } from '@/lib/save-data-utils'
 import type { PrimaryStat, QuestStats } from '@/lib/quest-types'
 
 const PRIMARY_STAT_VALUES = ['str', 'dex', 'end', 'int', 'fai', 'arc'] as const
@@ -91,13 +94,7 @@ export async function GET() {
           }
         })(),
         difficulty: q.difficulty,
-        stats: (() => {
-          try {
-            return JSON.parse(q.statsExp) as QuestStats
-          } catch {
-            return { str: 0, dex: 0, end: 0, int: 0, fai: 0, arc: 0 }
-          }
-        })(),
+        stats: parseQuestStatsExp(q.statsExp),
         primaryStat: q.primaryStat,
         isCompleted: completedIds.has(q.id),
       }))
@@ -175,13 +172,7 @@ export async function GET() {
         }
       })(),
       difficulty: q.difficulty,
-      stats: (() => {
-        try {
-          return JSON.parse(q.statsExp) as QuestStats
-        } catch {
-          return { str: 0, dex: 0, end: 0, int: 0, fai: 0, arc: 0 }
-        }
-      })(),
+      stats: parseQuestStatsExp(q.statsExp),
       primaryStat: q.primaryStat,
       isCompleted: completedIds.has(q.id),
     }))

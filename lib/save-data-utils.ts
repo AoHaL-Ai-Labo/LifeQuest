@@ -21,34 +21,46 @@ function resolveDifficultyForExp(period: string, difficulty: string): string {
   return difficulty
 }
 
+/** 数値に変換するヘルパー。undefined/null/文字列も Number に変換し、負数は 0 に */
+function toStatNumber(v: unknown): number {
+  const n = Number(v)
+  return Number.isNaN(n) || n < 0 ? 0 : Math.floor(n)
+}
+
 export function parseStatsJson(json: string): QuestStats {
   try {
-    const o = JSON.parse(json) as Record<string, number>
-    const n = (v: unknown) => Math.max(0, Number(v) || 0)
+    const o = JSON.parse(json) as Record<string, unknown>
     return {
-      str: n(o.str),
-      dex: n(o.dex),
-      end: n(o.end),
-      int: n(o.int),
-      fai: n(o.fai),
-      arc: n(o.arc),
+      str: toStatNumber(o.str),
+      dex: toStatNumber(o.dex),
+      end: toStatNumber(o.end),
+      int: toStatNumber(o.int),
+      fai: toStatNumber(o.fai),
+      arc: toStatNumber(o.arc),
     }
   } catch {
     return { ...DEFAULT_STATS }
   }
 }
 
+/**
+ * Quest.statsExp をパースし、各ステータスを必ず Number として返す。
+ * JSON からの取得時は必ずこの関数を使用すること。
+ */
+export function parseQuestStatsExp(statsExp: string): QuestStats {
+  return parseStatsJson(statsExp)
+}
+
 export function parseHiddenExpJson(json: string): QuestStats {
   try {
-    const o = JSON.parse(json) as Record<string, number>
-    const n = (v: unknown) => Math.max(0, Number(v) || 0)
+    const o = JSON.parse(json) as Record<string, unknown>
     return {
-      str: n(o.str),
-      dex: n(o.dex),
-      end: n(o.end),
-      int: n(o.int),
-      fai: n(o.fai),
-      arc: n(o.arc),
+      str: toStatNumber(o.str),
+      dex: toStatNumber(o.dex),
+      end: toStatNumber(o.end),
+      int: toStatNumber(o.int),
+      fai: toStatNumber(o.fai),
+      arc: toStatNumber(o.arc),
     }
   } catch {
     return { ...DEFAULT_HIDDEN_EXP }

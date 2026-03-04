@@ -6,6 +6,8 @@
 const STORAGE_KEY = 'quest-log:singularity'
 const TRIGGER_CHANCE_MIN = 0.1
 const TRIGGER_CHANCE_MAX = 0.15
+/** 特異点が発動可能になるレベル（これ以上で10〜15%の確率で発動） */
+export const SINGULARITY_UNLOCK_LEVEL = 15
 const HOURS_LIMIT = 3
 
 export interface SingularityState {
@@ -83,9 +85,10 @@ export function saveSingularityState(state: SingularityState): void {
   }
 }
 
-/** 10〜15%の確率で特異点が発動するかチェック。force=true は常に発動 */
-export function shouldTriggerSingularity(force?: boolean): boolean {
+/** 10〜15%の確率で特異点が発動するかチェック。level が SINGULARITY_UNLOCK_LEVEL 未満なら発動しない。force=true は常に発動 */
+export function shouldTriggerSingularity(level: number, force?: boolean): boolean {
   if (force) return true
+  if (level < SINGULARITY_UNLOCK_LEVEL) return false
   const r = Math.random()
   const chance = TRIGGER_CHANCE_MIN + (TRIGGER_CHANCE_MAX - TRIGGER_CHANCE_MIN) * Math.random()
   return r < chance

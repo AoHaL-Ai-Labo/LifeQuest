@@ -1,5 +1,7 @@
 import { google } from '@ai-sdk/google'
 import { generateObject } from 'ai'
+
+export const dynamic = 'force-dynamic'
 import { z } from 'zod'
 import { sampleQuestsFromDb } from '@/lib/quest-catalog'
 import type { PrimaryStat, QuestStats } from '@/lib/quest-types'

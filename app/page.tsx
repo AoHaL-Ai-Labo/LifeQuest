@@ -89,7 +89,7 @@ export default function TitlePage() {
   useEffect(() => {
     if (!canContinue) return
     setUnknownLoading(true)
-    fetch('/api/quest/unknown')
+    fetch('/api/quest/unknown', { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : { quests: [] }))
       .then((data: { quests?: UnknownQuest[] }) => {
         const quests = data.quests ?? []
@@ -372,8 +372,9 @@ export default function TitlePage() {
         <div className="flex flex-col items-center gap-6">
           <Button
             size="lg"
-            className="group relative overflow-hidden rounded-sm border-2 border-orange-900/50 bg-stone-900 px-12 py-6 font-serif text-lg tracking-wider text-stone-300 transition-all duration-300 hover:border-orange-700 hover:bg-orange-950/50 hover:text-orange-200"
-            onMouseEnter={() => setIsHovering(true)}
+            disabled={canContinue}
+            className="group relative overflow-hidden rounded-sm border-2 border-orange-900/50 bg-stone-900 px-12 py-6 font-serif text-lg tracking-wider text-stone-300 transition-all duration-300 hover:border-orange-700 hover:bg-orange-950/50 hover:text-orange-200 disabled:pointer-events-none disabled:opacity-50"
+            onMouseEnter={() => !canContinue && setIsHovering(true)}
             onMouseLeave={() => setIsHovering(false)}
             onClick={handleNewGame}
           >
@@ -400,15 +401,18 @@ export default function TitlePage() {
             </span>
           </Button>
 
-          <button
-            type="button"
-            onClick={handleContinue}
+          <Button
+            size="lg"
             disabled={!canContinue}
-            className="font-mono text-sm tracking-wider text-stone-600 transition-colors hover:text-stone-500 disabled:cursor-not-allowed disabled:opacity-50"
+            className="group relative overflow-hidden rounded-sm border-2 border-orange-900/50 bg-stone-900 px-12 py-6 font-serif text-lg tracking-wider text-stone-300 transition-all duration-300 hover:border-orange-700 hover:bg-orange-950/50 hover:text-orange-200 disabled:pointer-events-none disabled:opacity-50"
+            onClick={handleContinue}
           >
-            Continue
-            <span className="ml-2 text-xs">継続</span>
-          </button>
+            <span className="relative z-10 flex items-center gap-3">
+              <span className="h-2 w-2 rounded-full bg-orange-900/50" />
+              Continue
+              <span className="text-sm">継続</span>
+            </span>
+          </Button>
         </div>
       </div>
 

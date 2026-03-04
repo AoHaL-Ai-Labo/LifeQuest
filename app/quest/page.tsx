@@ -124,12 +124,19 @@ const LOADING_TIPS = [
   'Tips: どんな些細な違和感も、この書物（アプリ）に刻み込むがいい。それが貴公の生きた証となる。',
 ]
 
-/** API失敗時（クォータ超過・キー未設定等）のフォールバック。アプリを試せるようサンプル3件を表示 */
-const FALLBACK_QUESTS: Array<{ title: string; description: string; flavorText: string }> = [
+/** API失敗時（クォータ超過・キー未設定等）のフォールバックベース。Daily=5, Weekly=7, Monthly=10 に合わせて繰り返して返す */
+const FALLBACK_QUESTS_BASE: Array<{ title: string; description: string; flavorText: string }> = [
   { title: '左腕の誓約', description: '利き手ではない方の手で、歯磨きかドアノブを回してみよう。5分以内。', flavorText: '火の無き灰よ、己の利き腕を封じよ。不便という名の枷が、淀んだ瞳を開くやもしれぬのだから…' },
   { title: '新ルートの探求', description: 'いつもと違う道で帰宅し、気になったものを3つ記録せよ。', flavorText: '呪われし日常の轍を断ち、未知の路を歩め。その一歩が、世界を書き換える。' },
   { title: '沈黙を破る契約', description: '知らない人に一声かけて、最低2分会話を続けよ。', flavorText: '魂を繋ぐ言葉よ、沈黙の壁を砕け。汝の声は、新たな契約の始まりなれば。' },
 ]
+const QUEST_COUNTS: Record<QuestPeriod, number> = { daily: 5, weekly: 7, monthly: 10 }
+function getFallbackQuests(period: QuestPeriod): Array<{ title: string; description: string; flavorText: string }> {
+  const count = QUEST_COUNTS[period] ?? 5
+  const out: typeof FALLBACK_QUESTS_BASE = []
+  for (let i = 0; i < count; i++) out.push(FALLBACK_QUESTS_BASE[i % FALLBACK_QUESTS_BASE.length])
+  return out
+}
 
 /** クエスト型（DB由来の場合は id を持つ） */
 type QuestWithOptionalId = { title: string; description: string; flavorText?: string; id?: string }
@@ -307,8 +314,8 @@ export default function QuestPage() {
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err)
             console.error('[Debug: API Error] /api/quest failed', { comboKey: ck, message: msg }, err)
-            setQuestsByCombo((p) => ({ ...p, [ck]: FALLBACK_QUESTS }))
-            saveQuestsToCacheOnly(FALLBACK_QUESTS, period, difficulty)
+            setQuestsByCombo((p) => ({ ...p, [ck]: getFallbackQuests(period) }))
+            saveQuestsToCacheOnly(getFallbackQuests(period), period, difficulty)
           } finally {
             setIsFetchingByCombo((p) => ({ ...p, [ck]: false }))
           }
@@ -350,8 +357,8 @@ export default function QuestPage() {
               }
             } catch (err) {
               console.error('[Debug: API] interval fetch failed', ck, err)
-              setQuestsByCombo((p) => ({ ...p, [ck]: FALLBACK_QUESTS }))
-              saveQuestsToCacheOnly(FALLBACK_QUESTS, period, difficulty)
+              setQuestsByCombo((p) => ({ ...p, [ck]: getFallbackQuests(period) }))
+              saveQuestsToCacheOnly(getFallbackQuests(period), period, difficulty)
             } finally {
               setIsFetchingByCombo((p) => ({ ...p, [ck]: false }))
             }
@@ -714,8 +721,8 @@ export default function QuestPage() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       console.error('[Debug: API Error] /api/quest failed', { comboKey: ck }, err)
-      setQuestsByCombo((p) => ({ ...p, [ck]: FALLBACK_QUESTS }))
-      saveQuestsToCacheOnly(FALLBACK_QUESTS, period, difficulty)
+      setQuestsByCombo((p) => ({ ...p, [ck]: getFallbackQuests(period) }))
+      saveQuestsToCacheOnly(getFallbackQuests(period), period, difficulty)
       alert('APIで取得できませんでした（クォータ超過やキー未設定の可能性）。サンプルクエストで続行します。該当セクションの受信ボタンで再試行できます。')
     } finally {
       setIsFetchingByCombo((p) => ({ ...p, [ck]: false }))

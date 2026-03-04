@@ -13,8 +13,7 @@ export type { PrimaryStat, QuestStats }
 function matchesDifficulty(period: string, difficulty: string | undefined, qPeriod: string, qDifficulty: string): boolean {
   if (qPeriod !== period) return false
   if (!difficulty) return true
-  if (period === 'weekly') return qDifficulty === 'weekly'
-  if (period === 'monthly') return qDifficulty === 'monthly'
+  // DB seed: daily/weekly/monthly はいずれも beginner/intermediate/advanced を保持
   return qDifficulty === difficulty
 }
 

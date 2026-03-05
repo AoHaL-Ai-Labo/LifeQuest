@@ -1,9 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import Link from 'next/link'
-import { usePathname } from 'next/navigation'
-import { Award, Swords, ScrollText, CheckCircle2, Feather } from 'lucide-react'
+import { Award, CheckCircle2, Feather } from 'lucide-react'
+import { BottomNav } from '@/components/bottom-nav'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Textarea } from '@/components/ui/textarea'
@@ -16,7 +15,6 @@ import {
 import { getMockApiEnabled, mockDelay, mockTrophyJudge } from '@/lib/mock-api'
 
 export default function TrophyPage() {
-  const pathname = usePathname()
   const [achievedIds, setAchievedIds] = useState<string[]>([])
   const [judgeModal, setJudgeModal] = useState<TrophyItem | null>(null)
   const [episodeInput, setEpisodeInput] = useState('')
@@ -71,7 +69,7 @@ export default function TrophyPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground p-4 md:p-6 pt-16 pb-4">
+    <div className="min-h-screen bg-background text-foreground p-4 md:p-6 pt-4 pb-nav-safe">
       <div className="max-w-2xl mx-auto space-y-6">
         <header className="p-4 bg-muted/50 border border-border rounded-lg backdrop-blur-sm">
           <div className="flex items-center gap-2">
@@ -148,34 +146,7 @@ export default function TrophyPage() {
         </div>
       </div>
 
-      <nav className="fixed top-0 left-0 right-0 z-40 border-b border-border bg-muted/90 backdrop-blur-sm">
-        <div className="max-w-2xl mx-auto grid grid-cols-3">
-          <Link
-            href="/quest"
-            className={`flex items-center justify-center gap-2 py-3 font-mono text-xs uppercase ${
-              pathname === '/quest' ? 'text-[hsl(var(--neon-orange))] bg-[hsl(var(--neon-orange))]/10' : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            <Swords className="w-4 h-4" /> クエスト
-          </Link>
-          <Link
-            href="/history"
-            className={`flex items-center justify-center gap-2 py-3 font-mono text-xs uppercase ${
-              pathname === '/history' ? 'text-[hsl(var(--cyber-blue))] bg-[hsl(var(--cyber-blue))]/10' : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            <ScrollText className="w-4 h-4" /> 記録
-          </Link>
-          <Link
-            href="/trophy"
-            className={`flex items-center justify-center gap-2 py-3 font-mono text-xs uppercase ${
-              pathname === '/trophy' ? 'text-[hsl(var(--emergency-red))] bg-[hsl(var(--emergency-red))]/10' : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            <Award className="w-4 h-4" /> Trophy
-          </Link>
-        </div>
-      </nav>
+      <BottomNav />
 
       {/* 審査モーダル（AI Gatekeeper） */}
       {judgeModal && (

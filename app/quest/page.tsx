@@ -3,7 +3,7 @@
 import { useState, useEffect, useTransition } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Flame, Settings, Radio, Send, ChevronDown, ChevronRight, Lock, Swords, ScrollText, Award, Sparkles, Skull, RotateCcw, Calendar, Moon, Repeat } from 'lucide-react'
+import { Flame, Settings, Radio, Send, ChevronDown, ChevronRight, Lock, Sparkles, Skull, RotateCcw, Calendar, Moon, Repeat } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   AlertDialog,
@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Textarea } from '@/components/ui/textarea'
 import { QuestFeedItem } from '@/components/quest-feed-item'
+import { BottomNav } from '@/components/bottom-nav'
 import {
   getQuestLockStatus,
   saveQuestFetch,
@@ -91,10 +92,11 @@ import type { QuestTier, QuestPeriod } from '@/lib/quest-lock'
 import { isQuestComboUnlocked, getUnlockLevel, getNextUnlockForDifficulty, isTrialUnlocked, isAbyssUnlocked, isPeriodUnlocked, getPeriodUnlockLevel, isMonthlyEventUnlocked, isInvertedQuestUnlocked, MONTHLY_EVENT_UNLOCK_LEVEL, INVERTED_QUEST_UNLOCK_LEVEL, TRIAL_UNLOCK_LEVEL } from '@/lib/quest-unlock'
 import { isReborn, executePrestige } from '@/lib/reborn'
 import { pushMissionRecord } from '@/lib/mission-record'
-import { getQuestPrimaryStatByTitle, initializeQuestCatalog } from '@/lib/quest-catalog'
+import { getQuestPrimaryStatByTitle, getQuestStatsByTitle, initializeQuestCatalog } from '@/lib/quest-catalog'
+import { toast } from 'sonner'
 import { completeQuest } from '@/app/actions/userActions'
-import { getQuestCompletionStatus } from '@/app/actions/quest'
-import type { PrimaryStat } from '@/lib/quest-types'
+import { getQuestCompletionStatus, clearQuestHistoryForDebug } from '@/app/actions/quest'
+import type { PrimaryStat, QuestStats } from '@/lib/quest-types'
 import { getCurrentSeason, SEASON_LABELS } from '@/lib/season'
 import type { PlayerStats } from '@/lib/player-status'
 import { getClassFromStats } from '@/lib/user-class'
@@ -155,9 +157,7 @@ export default function QuestPage() {
   const [isFetchingExtraByCombo, setIsFetchingExtraByCombo] = useState<Record<string, boolean>>({})
   const [reflectionInputs, setReflectionInputs] = useState<Record<string, string>>({})
   const [isSubmittingReport, setIsSubmittingReport] = useState<string | null>(null)
-  const [clearMessageModal, setClearMessageModal] = useState<{ message: string; questTitle: string; leveledUp?: boolean; newLevel?: number } | null>(null)
   const [streakMilestoneModal, setStreakMilestoneModal] = useState<{ milestone: number; expGained: number } | null>(null)
-  const [expandedQuestId, setExpandedQuestId] = useState<string | null>(null)
   const [loadingTip, setLoadingTip] = useState('')
   const [rerollModal, setRerollModal] = useState<{ comboKey: string; period: QuestPeriod; difficulty: QuestTier; index: number; quest: { title: string; description: string; flavorText?: string } } | null>(null)
   const [rerollConstraints, setRerollConstraints] = useState('')
@@ -449,7 +449,8 @@ export default function QuestPage() {
   ) => {
     pushMissionRecord({ questTitle, reflection, clearMessage, stats })
     const streakBonus = getStreakExpBonus(getStreakDays())
-    const expGain = getExpPerQuestClear(playerStatus.level, period, difficulty, isExtra, false) + streakBonus
+    const baseExp = getExpPerQuestClear(playerStatus.level, period, difficulty, isExtra, false)
+    const expGain = baseExp + streakBonus
     const questOptions = primaryStat
       ? { primaryStat, period }
       : undefined
@@ -457,7 +458,11 @@ export default function QuestPage() {
     const prevLevel = playerStatus.level
     const prevRank = playerStatus.rank
     console.log('[Debug: EXP]', {
-      gained: expGain,
+      period,
+      difficulty,
+      baseExp,
+      streakBonus,
+      totalGain: expGain,
       level: `${prevLevel} → ${newStatus.level}`,
       rank: prevRank !== newStatus.rank ? `${prevRank} → ${newStatus.rank}` : prevRank,
       leveledUp,
@@ -533,38 +538,32 @@ export default function QuestPage() {
     return { leveledUp, newLevel: newStatus.level }
   }
 
-  const handleSubmitReport = async (comboKey: ComboKey, period: QuestPeriod, difficulty: QuestTier, questIndex: number, quest: QuestWithOptionalId) => {
+  const SWIPE_REFLECTION = '（スワイプで完了）'
+
+  const handleSubmitReport = async (comboKey: ComboKey, period: QuestPeriod, difficulty: QuestTier, questIndex: number, quest: QuestWithOptionalId, reflectionOverride?: string) => {
     const refKey = `${comboKey}-${questIndex}`
-    const reflection = reflectionInputs[refKey]?.trim()
+    const reflection = reflectionOverride ?? reflectionInputs[refKey]?.trim()
     if (!reflection) { alert('感想を入力してください'); return }
-    setIsSubmittingReport(refKey)
-    try {
-      let message: string | null
-      if (getMockApiEnabled()) {
-        message = await mockDelay(MOCK_REPORT_MESSAGE)
-      } else {
-        const res = await fetch('/api/report', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ questTitle: quest.title, reflection }) })
-        const data = await res.json().catch(() => ({}))
-        message = res.ok ? data.message : (isQuotaError(res, data) ? FALLBACK_CLEAR_MESSAGE : null)
-        if (!res.ok && isQuotaError(res, data)) {
-          alert('APIの利用制限に達しました。クリアは記録済みです。しばらく経ってから再度お試しください。')
-        }
-        if (message === null) throw new Error((data as { detail?: string }).detail ?? (data as { error?: string }).error ?? 'API error')
-      }
+
+    /** Optimistic UI: 即座にcleared状態を表示し、感想入力クリア */
+    const doOptimisticUi = (clearMessage: string) => {
       setClearedByCombo((p) => {
         const curr = p[comboKey] ?? {}
-        const next = { ...curr, [questIndex]: message! }
+        const next = { ...curr, [questIndex]: clearMessage }
         saveClearedQuests(next, period, difficulty)
         return { ...p, [comboKey]: next }
       })
       setReflectionInputs((p) => ({ ...p, [refKey]: '' }))
+    }
+
+    setIsSubmittingReport(refKey)
+    try {
       let leveledUp: boolean
       let newLevel: number
+
       if (quest.id) {
         const result = await completeQuest(quest.id)
-        if (!result.success) {
-          throw new Error(result.error ?? 'クエストの達成に失敗しました')
-        }
+        if (!result.success) throw new Error(result.error ?? 'クエストの達成に失敗しました')
         if (result.userData) {
           savePlayerStatus({
             level: result.userData.level,
@@ -577,7 +576,6 @@ export default function QuestPage() {
           })
           window.dispatchEvent(new CustomEvent(DEBUG_EVENT))
         }
-        pushMissionRecord({ questTitle: quest.title, reflection, clearMessage: message!, stats: (quest as { stats?: { str: number; dex: number; end: number; int: number; fai: number; arc: number } }).stats })
         pushClearHistory(quest.title)
         incrementStreakIfNeeded()
         setStreakDays(getStreakDays())
@@ -585,107 +583,129 @@ export default function QuestPage() {
         setCompletedQuestIdsFromServer((p) => new Set(p).add(quest.id))
         leveledUp = result.leveledUp ?? false
         newLevel = result.userData?.level ?? playerStatus.level
+        pushMissionRecord({ questTitle: quest.title, reflection, clearMessage: FALLBACK_CLEAR_MESSAGE, stats: (quest as { stats?: { str: number; dex: number; end: number; int: number; fai: number; arc: number } }).stats })
+        doOptimisticUi(FALLBACK_CLEAR_MESSAGE)
       } else {
         const primaryStat = (quest as { primaryStat?: PrimaryStat }).primaryStat ?? getQuestPrimaryStatByTitle(quest.title) ?? 'str'
-        const progress = applyClearProgress(message!, quest.title, reflection, period, difficulty, false, (quest as { stats?: { str: number; dex: number; end: number; int: number; fai: number; arc: number } }).stats, primaryStat)
+        const progress = applyClearProgress(FALLBACK_CLEAR_MESSAGE, quest.title, reflection, period, difficulty, false, (quest as { stats?: { str: number; dex: number; end: number; int: number; fai: number; arc: number } }).stats, primaryStat)
         leveledUp = progress.leveledUp
         newLevel = progress.newLevel
+        doOptimisticUi(FALLBACK_CLEAR_MESSAGE)
       }
+
       const milestoneResult = claimStreakMilestoneIfEligible(getStreakDays(), loadPlayerStatus())
       if (milestoneResult) {
         setPlayerStatus(milestoneResult.newStatus)
         savePlayerStatus(milestoneResult.newStatus)
         setStreakMilestoneModal({ milestone: milestoneResult.milestone, expGained: milestoneResult.expGained })
       }
-      const clearResult = { message: message!, questTitle: quest.title, leveledUp, newLevel }
+
+      const clearResult = { leveledUp, newLevel }
       if (shouldTriggerSingularity(newLevel)) {
-        window.dispatchEvent(new CustomEvent(SINGULARITY_TRIGGER_EVENT, { detail: { pendingClearModal: clearResult, sourcePeriod: period, sourceDifficulty: difficulty } }))
-      } else {
-        setClearMessageModal(clearResult)
+        window.dispatchEvent(new CustomEvent(SINGULARITY_TRIGGER_EVENT, { detail: { pendingClearModal: { ...clearResult, message: FALLBACK_CLEAR_MESSAGE, questTitle: quest.title }, sourcePeriod: period, sourceDifficulty: difficulty } }))
       }
-      if (leveledUp) {
+
+      /** 即座にUIブロック解除 */
+      setIsSubmittingReport(null)
+
+      /** バックグラウンド: AIねぎらいコメント取得 → トースト表示 */
+      const fetchAiAndToast = async () => {
+        let message: string
         if (getMockApiEnabled()) {
-          const prefix = await mockDelay(MOCK_TITLE_PREFIX)
-          updatePrefix(prefix)
-          setPlayerStatus((s) => ({ ...s, prefix }))
-          console.log('[Debug: State Change] Prefix from Mock:', prefix)
+          message = await mockDelay(MOCK_REPORT_MESSAGE)
         } else {
-          const history = getClearHistory()
-          const r = await fetch('/api/title', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ recentClears: history }) })
-          if (r.ok) {
-            const { prefix } = await r.json().catch(() => ({}))
-            if (prefix) {
-              updatePrefix(prefix)
-              setPlayerStatus((s) => ({ ...s, prefix }))
-              console.log('[Debug: State Change] Prefix from API:', prefix)
-            }
+          const res = await fetch('/api/report', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ questTitle: quest.title, reflection }) })
+          const data = await res.json().catch(() => ({}))
+          message = res.ok ? data.message : (isQuotaError(res, data) ? FALLBACK_CLEAR_MESSAGE : '')
+          if (!res.ok && isQuotaError(res, data)) {
+            toast.error('APIの利用制限に達しました。クリアは記録済みです。')
+            return
+          }
+          if (!message) return
+        }
+        setClearedByCombo((p) => {
+          const curr = p[comboKey] ?? {}
+          const next = { ...curr, [questIndex]: message }
+          saveClearedQuests(next, period, difficulty)
+          return { ...p, [comboKey]: next }
+        })
+        const levelUpSuffix = leveledUp && newLevel ? `\nLv${newLevel} 昇格` : ''
+        toast.success(`${quest.title} — CLEAR`, { description: `「${message}」${levelUpSuffix}`, duration: 5000 })
+        if (leveledUp) {
+          if (getMockApiEnabled()) {
+            const prefix = await mockDelay(MOCK_TITLE_PREFIX)
+            updatePrefix(prefix)
+            setPlayerStatus((s) => ({ ...s, prefix }))
           } else {
-            console.error('[Debug: API Error] /api/title failed', { status: r.status, ok: r.ok })
+            const history = getClearHistory()
+            const r = await fetch('/api/title', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ recentClears: history }) })
+            if (r.ok) {
+              const { prefix } = await r.json().catch(() => ({}))
+              if (prefix) { updatePrefix(prefix); setPlayerStatus((s) => ({ ...s, prefix })) }
+            }
           }
         }
       }
+      void fetchAiAndToast()
     } catch (err) {
-      console.error('[Debug: API Error] /api/report failed', {
-        error: err instanceof Error ? err.message : String(err),
-        questTitle: quest.title,
-      })
+      console.error('[Debug: API Error] handleSubmitReport failed', { error: err instanceof Error ? err.message : String(err), questTitle: quest.title })
       alert(err instanceof Error ? err.message : '報告の提出に失敗しました')
     } finally {
       setIsSubmittingReport(null)
     }
   }
 
-  const handleSubmitExtraReport = async (comboKey: ComboKey, period: QuestPeriod, difficulty: QuestTier, quest: { title: string; description: string; flavorText?: string }) => {
-    const reflection = (extraReflectionInputByCombo[comboKey] ?? '').trim()
+  const handleSubmitExtraReport = async (comboKey: ComboKey, period: QuestPeriod, difficulty: QuestTier, quest: { title: string; description: string; flavorText?: string }, reflectionOverride?: string) => {
+    const reflection = reflectionOverride ?? (extraReflectionInputByCombo[comboKey] ?? '').trim()
     if (!reflection) { alert('感想を入力してください'); return }
     setIsSubmittingReport(`extra-${comboKey}`)
     try {
-      let message: string | null
-      if (getMockApiEnabled()) {
-        message = await mockDelay(MOCK_REPORT_MESSAGE)
-      } else {
-        const res = await fetch('/api/report', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ questTitle: quest.title, reflection }) })
-        const data = await res.json().catch(() => ({}))
-        message = res.ok ? data.message : (isQuotaError(res, data) ? FALLBACK_CLEAR_MESSAGE : null)
-        if (!res.ok && isQuotaError(res, data)) {
-          alert('APIの利用制限に達しました。クリアは記録済みです。しばらく経ってから再度お試しください。')
-        }
-        if (message === null) throw new Error((data as { detail?: string }).detail ?? 'API error')
-      }
-      saveExtraQuestCleared(message, period, difficulty)
-      setExtraQuestClearedByCombo((p) => ({ ...p, [comboKey]: message }))
-      setExtraReflectionInputByCombo((p) => ({ ...p, [comboKey]: '' }))
       const primaryStat = (quest as { primaryStat?: PrimaryStat }).primaryStat ?? getQuestPrimaryStatByTitle(quest.title) ?? 'str'
-      const { leveledUp, newLevel } = applyClearProgress(message, quest.title, reflection, period, difficulty, true, (quest as { stats?: { str: number; dex: number; end: number; int: number; fai: number; arc: number } }).stats, primaryStat)
+      const { leveledUp, newLevel } = applyClearProgress(FALLBACK_CLEAR_MESSAGE, quest.title, reflection, period, difficulty, true, (quest as { stats?: { str: number; dex: number; end: number; int: number; fai: number; arc: number } }).stats, primaryStat)
+      saveExtraQuestCleared(FALLBACK_CLEAR_MESSAGE, period, difficulty)
+      setExtraQuestClearedByCombo((p) => ({ ...p, [comboKey]: FALLBACK_CLEAR_MESSAGE }))
+      setExtraReflectionInputByCombo((p) => ({ ...p, [comboKey]: '' }))
       const milestoneResult = claimStreakMilestoneIfEligible(getStreakDays(), loadPlayerStatus())
       if (milestoneResult) {
         setPlayerStatus(milestoneResult.newStatus)
         savePlayerStatus(milestoneResult.newStatus)
         setStreakMilestoneModal({ milestone: milestoneResult.milestone, expGained: milestoneResult.expGained })
       }
-      const clearResult = { message, questTitle: quest.title, leveledUp, newLevel }
       if (shouldTriggerSingularity(newLevel)) {
-        window.dispatchEvent(new CustomEvent(SINGULARITY_TRIGGER_EVENT, { detail: { pendingClearModal: clearResult, sourcePeriod: period, sourceDifficulty: difficulty } }))
-      } else {
-        setClearMessageModal(clearResult)
+        window.dispatchEvent(new CustomEvent(SINGULARITY_TRIGGER_EVENT, { detail: { pendingClearModal: { message: FALLBACK_CLEAR_MESSAGE, questTitle: quest.title, leveledUp, newLevel }, sourcePeriod: period, sourceDifficulty: difficulty } }))
       }
-      if (leveledUp) {
+      setIsSubmittingReport(null)
+      const fetchAiAndToast = async () => {
+        let message: string
         if (getMockApiEnabled()) {
-          const prefix = await mockDelay(MOCK_TITLE_PREFIX)
-          updatePrefix(prefix)
-          setPlayerStatus((s) => ({ ...s, prefix }))
+          message = await mockDelay(MOCK_REPORT_MESSAGE)
         } else {
-          const history = getClearHistory()
-          const r = await fetch('/api/title', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ recentClears: history }) })
-          if (r.ok) {
-            const { prefix } = await r.json().catch(() => ({}))
-            if (prefix) {
-              updatePrefix(prefix)
-              setPlayerStatus((s) => ({ ...s, prefix }))
+          const res = await fetch('/api/report', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ questTitle: quest.title, reflection }) })
+          const data = await res.json().catch(() => ({}))
+          message = res.ok ? data.message : (isQuotaError(res, data) ? FALLBACK_CLEAR_MESSAGE : '')
+          if (!res.ok && isQuotaError(res, data)) { toast.error('APIの利用制限に達しました。'); return }
+          if (!message) return
+        }
+        saveExtraQuestCleared(message, period, difficulty)
+        setExtraQuestClearedByCombo((p) => ({ ...p, [comboKey]: message }))
+        const levelUpSuffix = leveledUp && newLevel ? `\nLv${newLevel} 昇格` : ''
+        toast.success(`${quest.title} — CLEAR`, { description: `「${message}」${levelUpSuffix}`, duration: 5000 })
+        if (leveledUp) {
+          if (getMockApiEnabled()) {
+            const prefix = await mockDelay(MOCK_TITLE_PREFIX)
+            updatePrefix(prefix)
+            setPlayerStatus((s) => ({ ...s, prefix }))
+          } else {
+            const history = getClearHistory()
+            const r = await fetch('/api/title', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ recentClears: history }) })
+            if (r.ok) {
+              const { prefix } = await r.json().catch(() => ({}))
+              if (prefix) { updatePrefix(prefix); setPlayerStatus((s) => ({ ...s, prefix })) }
             }
           }
         }
       }
+      void fetchAiAndToast()
     } catch (err) {
       console.error('[Debug: API Error] /api/report (extra) failed', err)
       alert(err instanceof Error ? err.message : '報告の提出に失敗しました')
@@ -764,52 +784,57 @@ export default function QuestPage() {
     }
   }
 
-  const handleSubmitTrialReport = async (quest: { title: string; description: string; flavorText?: string }) => {
-    const reflection = trialReflectionInput.trim()
+  const handleSubmitTrialReport = async (quest: { title: string; description: string; flavorText?: string }, reflectionOverride?: string) => {
+    const reflection = reflectionOverride ?? trialReflectionInput.trim()
     if (!reflection) { alert('感想を入力してください'); return }
     setIsSubmittingReport('trial')
     try {
-      let message: string | null
-      if (getMockApiEnabled()) {
-        message = await mockDelay(MOCK_REPORT_MESSAGE)
-      } else {
-        const res = await fetch('/api/report', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ questTitle: quest.title, reflection }) })
-        const data = await res.json().catch(() => ({}))
-        message = res.ok ? data.message : (isQuotaError(res, data) ? FALLBACK_CLEAR_MESSAGE : null)
-        if (!res.ok && isQuotaError(res, data)) alert('APIの利用制限に達しました。クリアは記録済みです。')
-        if (message === null) throw new Error((data as { detail?: string }).detail ?? 'API error')
-      }
-      saveTrialCleared(message)
-      setTrialCleared(message)
-      setTrialReflectionInput('')
       const primaryStat = (quest as { primaryStat?: PrimaryStat }).primaryStat ?? getQuestPrimaryStatByTitle(quest.title) ?? 'str'
-      const { leveledUp, newLevel } = applyTrialClearProgress(message, quest.title, reflection, (quest as { stats?: { str: number; dex: number; end: number; int: number; fai: number; arc: number } }).stats, primaryStat)
+      const { leveledUp, newLevel } = applyTrialClearProgress(FALLBACK_CLEAR_MESSAGE, quest.title, reflection, (quest as { stats?: { str: number; dex: number; end: number; int: number; fai: number; arc: number } }).stats, primaryStat)
+      saveTrialCleared(FALLBACK_CLEAR_MESSAGE)
+      setTrialCleared(FALLBACK_CLEAR_MESSAGE)
+      setTrialReflectionInput('')
       const milestoneResult = claimStreakMilestoneIfEligible(getStreakDays(), loadPlayerStatus())
       if (milestoneResult) {
         setPlayerStatus(milestoneResult.newStatus)
         savePlayerStatus(milestoneResult.newStatus)
         setStreakMilestoneModal({ milestone: milestoneResult.milestone, expGained: milestoneResult.expGained })
       }
-      const clearResult = { message, questTitle: quest.title, leveledUp, newLevel }
       if (shouldTriggerSingularity(newLevel)) {
-        window.dispatchEvent(new CustomEvent(SINGULARITY_TRIGGER_EVENT, { detail: { pendingClearModal: clearResult, sourcePeriod: 'weekly', sourceDifficulty: 'advanced' } }))
-      } else {
-        setClearMessageModal(clearResult)
+        window.dispatchEvent(new CustomEvent(SINGULARITY_TRIGGER_EVENT, { detail: { pendingClearModal: { message: FALLBACK_CLEAR_MESSAGE, questTitle: quest.title, leveledUp, newLevel }, sourcePeriod: 'weekly', sourceDifficulty: 'advanced' } }))
       }
-      if (leveledUp) {
+      setIsSubmittingReport(null)
+      const fetchAiAndToast = async () => {
+        let message: string
         if (getMockApiEnabled()) {
-          const prefix = await mockDelay(MOCK_TITLE_PREFIX)
-          updatePrefix(prefix)
-          setPlayerStatus((s) => ({ ...s, prefix }))
+          message = await mockDelay(MOCK_REPORT_MESSAGE)
         } else {
-          const history = getClearHistory()
-          const r = await fetch('/api/title', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ recentClears: history }) })
-          if (r.ok) {
-            const { prefix } = await r.json().catch(() => ({}))
-            if (prefix) { updatePrefix(prefix); setPlayerStatus((s) => ({ ...s, prefix })) }
+          const res = await fetch('/api/report', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ questTitle: quest.title, reflection }) })
+          const data = await res.json().catch(() => ({}))
+          message = res.ok ? data.message : (isQuotaError(res, data) ? FALLBACK_CLEAR_MESSAGE : '')
+          if (!res.ok && isQuotaError(res, data)) { toast.error('APIの利用制限に達しました。'); return }
+          if (!message) return
+        }
+        saveTrialCleared(message)
+        setTrialCleared(message)
+        const levelUpSuffix = leveledUp && newLevel ? `\nLv${newLevel} 昇格` : ''
+        toast.success(`${quest.title} — CLEAR`, { description: `「${message}」${levelUpSuffix}`, duration: 5000 })
+        if (leveledUp) {
+          if (getMockApiEnabled()) {
+            const prefix = await mockDelay(MOCK_TITLE_PREFIX)
+            updatePrefix(prefix)
+            setPlayerStatus((s) => ({ ...s, prefix }))
+          } else {
+            const history = getClearHistory()
+            const r = await fetch('/api/title', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ recentClears: history }) })
+            if (r.ok) {
+              const { prefix } = await r.json().catch(() => ({}))
+              if (prefix) { updatePrefix(prefix); setPlayerStatus((s) => ({ ...s, prefix })) }
+            }
           }
         }
       }
+      void fetchAiAndToast()
     } catch (err) {
       console.error('[Debug: Trial report] failed', err)
       alert(err instanceof Error ? err.message : '報告の提出に失敗しました')
@@ -887,52 +912,57 @@ export default function QuestPage() {
     }
   }
 
-  const handleSubmitWeekendReport = async (quest: { title: string; description: string; flavorText?: string }) => {
-    const reflection = weekendReflectionInput.trim()
+  const handleSubmitWeekendReport = async (quest: { title: string; description: string; flavorText?: string }, reflectionOverride?: string) => {
+    const reflection = reflectionOverride ?? weekendReflectionInput.trim()
     if (!reflection) { alert('感想を入力してください'); return }
     setIsSubmittingReport('weekend')
     try {
-      let message: string | null
-      if (getMockApiEnabled()) {
-        message = await mockDelay(MOCK_REPORT_MESSAGE)
-      } else {
-        const res = await fetch('/api/report', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ questTitle: quest.title, reflection }) })
-        const data = await res.json().catch(() => ({}))
-        message = res.ok ? data.message : (isQuotaError(res, data) ? FALLBACK_CLEAR_MESSAGE : null)
-        if (!res.ok && isQuotaError(res, data)) alert('APIの利用制限に達しました。クリアは記録済みです。')
-        if (message === null) throw new Error((data as { detail?: string }).detail ?? 'API error')
-      }
-      saveWeekendChallengeCleared(message)
-      setWeekendCleared(message)
-      setWeekendReflectionInput('')
       const primaryStat = (quest as { primaryStat?: PrimaryStat }).primaryStat ?? getQuestPrimaryStatByTitle(quest.title) ?? 'str'
-      const { leveledUp, newLevel } = applyWeekendClearProgress(message, quest.title, reflection, (quest as { stats?: { str: number; dex: number; end: number; int: number; fai: number; arc: number } }).stats, primaryStat)
+      const { leveledUp, newLevel } = applyWeekendClearProgress(FALLBACK_CLEAR_MESSAGE, quest.title, reflection, (quest as { stats?: { str: number; dex: number; end: number; int: number; fai: number; arc: number } }).stats, primaryStat)
+      saveWeekendChallengeCleared(FALLBACK_CLEAR_MESSAGE)
+      setWeekendCleared(FALLBACK_CLEAR_MESSAGE)
+      setWeekendReflectionInput('')
       const milestoneResult = claimStreakMilestoneIfEligible(getStreakDays(), loadPlayerStatus())
       if (milestoneResult) {
         setPlayerStatus(milestoneResult.newStatus)
         savePlayerStatus(milestoneResult.newStatus)
         setStreakMilestoneModal({ milestone: milestoneResult.milestone, expGained: milestoneResult.expGained })
       }
-      const clearResult = { message, questTitle: quest.title, leveledUp, newLevel }
       if (shouldTriggerSingularity(newLevel)) {
-        window.dispatchEvent(new CustomEvent(SINGULARITY_TRIGGER_EVENT, { detail: { pendingClearModal: clearResult, sourcePeriod: 'weekly', sourceDifficulty: 'intermediate' } }))
-      } else {
-        setClearMessageModal(clearResult)
+        window.dispatchEvent(new CustomEvent(SINGULARITY_TRIGGER_EVENT, { detail: { pendingClearModal: { message: FALLBACK_CLEAR_MESSAGE, questTitle: quest.title, leveledUp, newLevel }, sourcePeriod: 'weekly', sourceDifficulty: 'intermediate' } }))
       }
-      if (leveledUp) {
+      setIsSubmittingReport(null)
+      const fetchAiAndToast = async () => {
+        let message: string
         if (getMockApiEnabled()) {
-          const prefix = await mockDelay(MOCK_TITLE_PREFIX)
-          updatePrefix(prefix)
-          setPlayerStatus((s) => ({ ...s, prefix }))
+          message = await mockDelay(MOCK_REPORT_MESSAGE)
         } else {
-          const history = getClearHistory()
-          const r = await fetch('/api/title', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ recentClears: history }) })
-          if (r.ok) {
-            const { prefix } = await r.json().catch(() => ({}))
-            if (prefix) { updatePrefix(prefix); setPlayerStatus((s) => ({ ...s, prefix })) }
+          const res = await fetch('/api/report', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ questTitle: quest.title, reflection }) })
+          const data = await res.json().catch(() => ({}))
+          message = res.ok ? data.message : (isQuotaError(res, data) ? FALLBACK_CLEAR_MESSAGE : '')
+          if (!res.ok && isQuotaError(res, data)) { toast.error('APIの利用制限に達しました。'); return }
+          if (!message) return
+        }
+        saveWeekendChallengeCleared(message)
+        setWeekendCleared(message)
+        const levelUpSuffix = leveledUp && newLevel ? `\nLv${newLevel} 昇格` : ''
+        toast.success(`${quest.title} — CLEAR`, { description: `「${message}」${levelUpSuffix}`, duration: 5000 })
+        if (leveledUp) {
+          if (getMockApiEnabled()) {
+            const prefix = await mockDelay(MOCK_TITLE_PREFIX)
+            updatePrefix(prefix)
+            setPlayerStatus((s) => ({ ...s, prefix }))
+          } else {
+            const history = getClearHistory()
+            const r = await fetch('/api/title', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ recentClears: history }) })
+            if (r.ok) {
+              const { prefix } = await r.json().catch(() => ({}))
+              if (prefix) { updatePrefix(prefix); setPlayerStatus((s) => ({ ...s, prefix })) }
+            }
           }
         }
       }
+      void fetchAiAndToast()
     } catch (err) {
       console.error('[Debug: Weekend report] failed', err)
       alert(err instanceof Error ? err.message : '報告の提出に失敗しました')
@@ -941,51 +971,56 @@ export default function QuestPage() {
     }
   }
 
-  const handleSubmitMonthlyEventReport = async (quest: { title: string; description: string; flavorText?: string }) => {
-    const reflection = monthlyEventReflectionInput.trim()
+  const handleSubmitMonthlyEventReport = async (quest: { title: string; description: string; flavorText?: string }, reflectionOverride?: string) => {
+    const reflection = reflectionOverride ?? monthlyEventReflectionInput.trim()
     if (!reflection) { alert('感想を入力してください'); return }
     setIsSubmittingReport('monthlyEvent')
     try {
-      let message: string | null
-      if (getMockApiEnabled()) {
-        message = await mockDelay(MOCK_REPORT_MESSAGE)
-      } else {
-        const res = await fetch('/api/report', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ questTitle: quest.title, reflection }) })
-        const data = await res.json().catch(() => ({}))
-        message = res.ok ? data.message : (isQuotaError(res, data) ? FALLBACK_CLEAR_MESSAGE : null)
-        if (!res.ok && isQuotaError(res, data)) alert('APIの利用制限に達しました。クリアは記録済みです。')
-        if (message === null) throw new Error((data as { detail?: string }).detail ?? 'API error')
-      }
-      saveMonthlyEventCleared(message)
-      setMonthlyEventCleared(message)
+      const { leveledUp, newLevel } = applyMonthlyEventClearProgress(FALLBACK_CLEAR_MESSAGE, quest.title, reflection, (quest as { stats?: { str: number; dex: number; end: number; int: number; fai: number; arc: number } }).stats)
+      saveMonthlyEventCleared(FALLBACK_CLEAR_MESSAGE)
+      setMonthlyEventCleared(FALLBACK_CLEAR_MESSAGE)
       setMonthlyEventReflectionInput('')
-      const { leveledUp, newLevel } = applyMonthlyEventClearProgress(message, quest.title, reflection, (quest as { stats?: { str: number; dex: number; end: number; int: number; fai: number; arc: number } }).stats)
       const milestoneResult = claimStreakMilestoneIfEligible(getStreakDays(), loadPlayerStatus())
       if (milestoneResult) {
         setPlayerStatus(milestoneResult.newStatus)
         savePlayerStatus(milestoneResult.newStatus)
         setStreakMilestoneModal({ milestone: milestoneResult.milestone, expGained: milestoneResult.expGained })
       }
-      const clearResult = { message, questTitle: quest.title, leveledUp, newLevel }
       if (shouldTriggerSingularity(newLevel)) {
-        window.dispatchEvent(new CustomEvent(SINGULARITY_TRIGGER_EVENT, { detail: { pendingClearModal: clearResult, sourcePeriod: 'monthly', sourceDifficulty: 'advanced' } }))
-      } else {
-        setClearMessageModal(clearResult)
+        window.dispatchEvent(new CustomEvent(SINGULARITY_TRIGGER_EVENT, { detail: { pendingClearModal: { message: FALLBACK_CLEAR_MESSAGE, questTitle: quest.title, leveledUp, newLevel }, sourcePeriod: 'monthly', sourceDifficulty: 'advanced' } }))
       }
-      if (leveledUp) {
+      setIsSubmittingReport(null)
+      const fetchAiAndToast = async () => {
+        let message: string
         if (getMockApiEnabled()) {
-          const prefix = await mockDelay(MOCK_TITLE_PREFIX)
-          updatePrefix(prefix)
-          setPlayerStatus((s) => ({ ...s, prefix }))
+          message = await mockDelay(MOCK_REPORT_MESSAGE)
         } else {
-          const history = getClearHistory()
-          const r = await fetch('/api/title', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ recentClears: history }) })
-          if (r.ok) {
-            const { prefix } = await r.json().catch(() => ({}))
-            if (prefix) { updatePrefix(prefix); setPlayerStatus((s) => ({ ...s, prefix })) }
+          const res = await fetch('/api/report', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ questTitle: quest.title, reflection }) })
+          const data = await res.json().catch(() => ({}))
+          message = res.ok ? data.message : (isQuotaError(res, data) ? FALLBACK_CLEAR_MESSAGE : '')
+          if (!res.ok && isQuotaError(res, data)) { toast.error('APIの利用制限に達しました。'); return }
+          if (!message) return
+        }
+        saveMonthlyEventCleared(message)
+        setMonthlyEventCleared(message)
+        const levelUpSuffix = leveledUp && newLevel ? `\nLv${newLevel} 昇格` : ''
+        toast.success(`${quest.title} — CLEAR`, { description: `「${message}」${levelUpSuffix}`, duration: 5000 })
+        if (leveledUp) {
+          if (getMockApiEnabled()) {
+            const prefix = await mockDelay(MOCK_TITLE_PREFIX)
+            updatePrefix(prefix)
+            setPlayerStatus((s) => ({ ...s, prefix }))
+          } else {
+            const history = getClearHistory()
+            const r = await fetch('/api/title', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ recentClears: history }) })
+            if (r.ok) {
+              const { prefix } = await r.json().catch(() => ({}))
+              if (prefix) { updatePrefix(prefix); setPlayerStatus((s) => ({ ...s, prefix })) }
+            }
           }
         }
       }
+      void fetchAiAndToast()
     } catch (err) {
       console.error('[Debug: MonthlyEvent report] failed', err)
       alert(err instanceof Error ? err.message : '報告の提出に失敗しました')
@@ -1024,52 +1059,57 @@ export default function QuestPage() {
     }
   }
 
-  const handleSubmitInvertedReport = async (quest: { title: string; description: string; flavorText?: string }) => {
-    const reflection = invertedReflectionInput.trim()
+  const handleSubmitInvertedReport = async (quest: { title: string; description: string; flavorText?: string }, reflectionOverride?: string) => {
+    const reflection = reflectionOverride ?? invertedReflectionInput.trim()
     if (!reflection) { alert('感想を入力してください'); return }
     setIsSubmittingReport('inverted')
     try {
-      let message: string | null
-      if (getMockApiEnabled()) {
-        message = await mockDelay(MOCK_REPORT_MESSAGE)
-      } else {
-        const res = await fetch('/api/report', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ questTitle: quest.title, reflection }) })
-        const data = await res.json().catch(() => ({}))
-        message = res.ok ? data.message : (isQuotaError(res, data) ? FALLBACK_CLEAR_MESSAGE : null)
-        if (!res.ok && isQuotaError(res, data)) alert('APIの利用制限に達しました。クリアは記録済みです。')
-        if (message === null) throw new Error((data as { detail?: string }).detail ?? 'API error')
-      }
-      saveInvertedQuestCleared(message)
-      setInvertedCleared(message)
-      setInvertedReflectionInput('')
       const primaryStat = (quest as { primaryStat?: PrimaryStat }).primaryStat ?? getQuestPrimaryStatByTitle(quest.title) ?? 'str'
-      const { leveledUp, newLevel } = applyInvertedClearProgress(message, quest.title, reflection, (quest as { stats?: { str: number; dex: number; end: number; int: number; fai: number; arc: number } }).stats, primaryStat)
+      const { leveledUp, newLevel } = applyInvertedClearProgress(FALLBACK_CLEAR_MESSAGE, quest.title, reflection, (quest as { stats?: { str: number; dex: number; end: number; int: number; fai: number; arc: number } }).stats, primaryStat)
+      saveInvertedQuestCleared(FALLBACK_CLEAR_MESSAGE)
+      setInvertedCleared(FALLBACK_CLEAR_MESSAGE)
+      setInvertedReflectionInput('')
       const milestoneResult = claimStreakMilestoneIfEligible(getStreakDays(), loadPlayerStatus())
       if (milestoneResult) {
         setPlayerStatus(milestoneResult.newStatus)
         savePlayerStatus(milestoneResult.newStatus)
         setStreakMilestoneModal({ milestone: milestoneResult.milestone, expGained: milestoneResult.expGained })
       }
-      const clearResult = { message, questTitle: quest.title, leveledUp, newLevel }
       if (shouldTriggerSingularity(newLevel)) {
-        window.dispatchEvent(new CustomEvent(SINGULARITY_TRIGGER_EVENT, { detail: { pendingClearModal: clearResult, sourcePeriod: 'daily', sourceDifficulty: 'beginner' } }))
-      } else {
-        setClearMessageModal(clearResult)
+        window.dispatchEvent(new CustomEvent(SINGULARITY_TRIGGER_EVENT, { detail: { pendingClearModal: { message: FALLBACK_CLEAR_MESSAGE, questTitle: quest.title, leveledUp, newLevel }, sourcePeriod: 'daily', sourceDifficulty: 'beginner' } }))
       }
-      if (leveledUp) {
+      setIsSubmittingReport(null)
+      const fetchAiAndToast = async () => {
+        let message: string
         if (getMockApiEnabled()) {
-          const prefix = await mockDelay(MOCK_TITLE_PREFIX)
-          updatePrefix(prefix)
-          setPlayerStatus((s) => ({ ...s, prefix }))
+          message = await mockDelay(MOCK_REPORT_MESSAGE)
         } else {
-          const history = getClearHistory()
-          const r = await fetch('/api/title', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ recentClears: history }) })
-          if (r.ok) {
-            const { prefix } = await r.json().catch(() => ({}))
-            if (prefix) { updatePrefix(prefix); setPlayerStatus((s) => ({ ...s, prefix })) }
+          const res = await fetch('/api/report', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ questTitle: quest.title, reflection }) })
+          const data = await res.json().catch(() => ({}))
+          message = res.ok ? data.message : (isQuotaError(res, data) ? FALLBACK_CLEAR_MESSAGE : '')
+          if (!res.ok && isQuotaError(res, data)) { toast.error('APIの利用制限に達しました。'); return }
+          if (!message) return
+        }
+        saveInvertedQuestCleared(message)
+        setInvertedCleared(message)
+        const levelUpSuffix = leveledUp && newLevel ? `\nLv${newLevel} 昇格` : ''
+        toast.success(`${quest.title} — CLEAR`, { description: `「${message}」${levelUpSuffix}`, duration: 5000 })
+        if (leveledUp) {
+          if (getMockApiEnabled()) {
+            const prefix = await mockDelay(MOCK_TITLE_PREFIX)
+            updatePrefix(prefix)
+            setPlayerStatus((s) => ({ ...s, prefix }))
+          } else {
+            const history = getClearHistory()
+            const r = await fetch('/api/title', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ recentClears: history }) })
+            if (r.ok) {
+              const { prefix } = await r.json().catch(() => ({}))
+              if (prefix) { updatePrefix(prefix); setPlayerStatus((s) => ({ ...s, prefix })) }
+            }
           }
         }
       }
+      void fetchAiAndToast()
     } catch (err) {
       console.error('[Debug: Inverted report] failed', err)
       alert(err instanceof Error ? err.message : '報告の提出に失敗しました')
@@ -1158,7 +1198,7 @@ export default function QuestPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground p-4 md:p-6 pt-16 pb-4" data-tier={playerStatus.tier}>
+    <div className="min-h-screen bg-background text-foreground p-4 md:p-6 pt-4 pb-nav-safe" data-tier={playerStatus.tier}>
       <div className="max-w-2xl mx-auto space-y-6">
         <header className="flex flex-col gap-3 p-4 bg-muted/50 border border-border rounded-lg backdrop-blur-sm">
           <div className="flex items-center justify-between">
@@ -1190,7 +1230,16 @@ export default function QuestPage() {
             </div>
             <div className="flex items-center gap-1">
               {developerMode && (
-                <Button variant="ghost" size="sm" className="h-7 px-2 text-[10px] text-muted-foreground hover:text-foreground" onClick={clearQuestCache}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-[10px] text-muted-foreground hover:text-foreground"
+                  onClick={async () => {
+                    const r = await clearQuestHistoryForDebug()
+                    if (r.success) console.log('[Debug] QuestHistory 削除:', r.deleted, '件')
+                    clearQuestCache()
+                  }}
+                >
                   🔄 Debug: クエスト履歴をリセット
                 </Button>
               )}
@@ -1358,7 +1407,9 @@ export default function QuestPage() {
                     クエストを受信
                   </button>
                 )}
-                {quests.length > 0 && (() => {
+                {quests.length > 0 && (
+                <div className="space-y-2">
+                {(() => {
                   const items = quests.map((q, i) => {
                     const quest = (rerolls[i] ?? q) as QuestWithOptionalId
                     const fromServer = quest.id ? completedQuestIdsFromServer.has(quest.id) : false
@@ -1370,39 +1421,49 @@ export default function QuestPage() {
                   const inProgress = items.filter((x) => !x.isCleared)
                   const completed = items.filter((x) => x.isCleared)
                   const sorted = [...inProgress, ...completed]
-                  return sorted.map(({ id, idx, quest, isCleared, clearedMessage }) => (
-                    <QuestFeedItem
-                      key={id}
-                      id={id}
-                      title={quest.title}
-                      badge={diffLabel}
-                      badgeColor={missionColorClass}
-                      isExpanded={expandedQuestId === id}
-                      onToggle={() => setExpandedQuestId((x) => (x === id ? null : id))}
-                      flavorText={quest.flavorText}
-                      description={quest.description}
-                      isCleared={isCleared}
-                      clearedMessage={clearedMessage}
-                      reflection={reflectionInputs[`${ck}-${idx}`]}
-                      onReflectionChange={(v) => setReflectionInputs((p) => ({ ...p, [`${ck}-${idx}`]: v }))}
-                      onSubmit={() => startTransition(() => { void handleSubmitReport(ck, period, difficulty, idx, quest) })}
-                      isSubmitting={isSubmittingReport === `${ck}-${idx}` || isPending}
-                      onReroll={() => setRerollModal({ comboKey: ck, period, difficulty, index: idx, quest })}
-                      canReroll={!rerolls[idx]}
-                    />
-                  ))
+                  return sorted.map(({ id, idx, quest, isCleared, clearedMessage }) => {
+                    const q = quest as { title: string; description?: string; flavorText?: string; primaryStat?: PrimaryStat; stats?: QuestStats }
+                    const expBase = getExpPerQuestClear(playerStatus.level, period, difficulty)
+                    const expGain = expBase + getStreakExpBonus(streakDays)
+                    const primaryStat = q.primaryStat ?? getQuestPrimaryStatByTitle(quest.title)
+                    const stats = q.stats ?? getQuestStatsByTitle(quest.title)
+                    return (
+                      <QuestFeedItem
+                        key={id}
+                        id={id}
+                        title={quest.title}
+                        badge={diffLabel}
+                        badgeColor={missionColorClass}
+                        flavorText={q.flavorText}
+                        description={q.description}
+                        isCleared={isCleared}
+                        clearedMessage={clearedMessage}
+                        reflection={reflectionInputs[`${ck}-${idx}`]}
+                        onReflectionChange={(v) => setReflectionInputs((p) => ({ ...p, [`${ck}-${idx}`]: v }))}
+                        onSubmit={() => startTransition(() => { void handleSubmitReport(ck, period, difficulty, idx, quest) })}
+                        onSwipeComplete={() => startTransition(() => { void handleSubmitReport(ck, period, difficulty, idx, quest, SWIPE_REFLECTION) })}
+                        isSubmitting={isSubmittingReport === `${ck}-${idx}` || isPending}
+                        onReroll={() => setRerollModal({ comboKey: ck, period, difficulty, index: idx, quest })}
+                        canReroll={!rerolls[idx]}
+                        expGain={expGain}
+                        primaryStat={primaryStat}
+                        stats={stats}
+                      />
+                    )
+                  })
                 })()}
+                </div>
+                )}
                 {!quests.length && !lock.canFetch && lock.nextUpdateMessage && (
                   <div className="py-2 px-3 text-xs text-muted-foreground font-mono border-b border-border/50">{lock.nextUpdateMessage}</div>
                 )}
                 {extraQuest && (
+                  <div className="mt-2">
                   <QuestFeedItem
                     id={`extra-${ck}`}
                     title={extraQuest.title}
                     badge="EXTRA"
                     badgeColor="border-amber-700/80 text-amber-500 bg-amber-950/40"
-                    isExpanded={expandedQuestId === `extra-${ck}`}
-                    onToggle={() => setExpandedQuestId((x) => (x === `extra-${ck}` ? null : `extra-${ck}`))}
                     flavorText={extraQuest.flavorText}
                     description={extraQuest.description}
                     isCleared={!!extraCleared}
@@ -1410,9 +1471,14 @@ export default function QuestPage() {
                     reflection={extraReflection}
                     onReflectionChange={(v) => setExtraReflectionInputByCombo((p) => ({ ...p, [ck]: v }))}
                     onSubmit={() => handleSubmitExtraReport(ck, period, difficulty, extraQuest)}
+                    onSwipeComplete={() => handleSubmitExtraReport(ck, period, difficulty, extraQuest, SWIPE_REFLECTION)}
                     isSubmitting={isSubmittingReport === `extra-${ck}`}
                     submitLabel={`誓約を果たす（+50% ${expLabel}）`}
+                    expGain={Math.floor(getExpPerQuestClear(playerStatus.level, period, difficulty, true) + getStreakExpBonus(streakDays))}
+                    primaryStat={(extraQuest as { primaryStat?: PrimaryStat }).primaryStat ?? getQuestPrimaryStatByTitle(extraQuest.title)}
+                    stats={(extraQuest as { stats?: QuestStats }).stats ?? getQuestStatsByTitle(extraQuest.title)}
                   />
+                  </div>
                 )}
               </div>
             )
@@ -1436,8 +1502,6 @@ export default function QuestPage() {
                   title={weekendQuest.title}
                   badge="週末"
                   badgeColor="text-cyan-500 border-cyan-500/50"
-                  isExpanded={expandedQuestId === 'weekend'}
-                  onToggle={() => setExpandedQuestId((x) => (x === 'weekend' ? null : 'weekend'))}
                   flavorText={weekendQuest.flavorText}
                   description={weekendQuest.description}
                   isCleared={!!weekendCleared}
@@ -1445,8 +1509,12 @@ export default function QuestPage() {
                   reflection={weekendReflectionInput}
                   onReflectionChange={setWeekendReflectionInput}
                   onSubmit={() => handleSubmitWeekendReport(weekendQuest)}
+                  onSwipeComplete={() => handleSubmitWeekendReport(weekendQuest, SWIPE_REFLECTION)}
                   isSubmitting={isSubmittingReport === 'weekend'}
                   submitLabel={`誓約を果たす（+30 ${expLabel}）`}
+                  expGain={30 + getStreakExpBonus(streakDays)}
+                  primaryStat={(weekendQuest as { primaryStat?: PrimaryStat }).primaryStat ?? getQuestPrimaryStatByTitle(weekendQuest.title)}
+                  stats={(weekendQuest as { stats?: QuestStats }).stats ?? getQuestStatsByTitle(weekendQuest.title)}
                 />
               )}
             </>
@@ -1470,8 +1538,6 @@ export default function QuestPage() {
                   title={monthlyEventQuest.title}
                   badge="月間"
                   badgeColor="text-emerald-500 border-emerald-500/50"
-                  isExpanded={expandedQuestId === 'monthlyEvent'}
-                  onToggle={() => setExpandedQuestId((x) => (x === 'monthlyEvent' ? null : 'monthlyEvent'))}
                   flavorText={monthlyEventQuest.flavorText}
                   description={monthlyEventQuest.description}
                   isCleared={!!monthlyEventCleared}
@@ -1479,8 +1545,12 @@ export default function QuestPage() {
                   reflection={monthlyEventReflectionInput}
                   onReflectionChange={setMonthlyEventReflectionInput}
                   onSubmit={() => handleSubmitMonthlyEventReport(monthlyEventQuest)}
+                  onSwipeComplete={() => handleSubmitMonthlyEventReport(monthlyEventQuest, SWIPE_REFLECTION)}
                   isSubmitting={isSubmittingReport === 'monthlyEvent'}
                   submitLabel={`誓約を果たす（+35 ${expLabel}）`}
+                  expGain={35 + getStreakExpBonus(streakDays)}
+                  primaryStat={(monthlyEventQuest as { primaryStat?: PrimaryStat }).primaryStat ?? getQuestPrimaryStatByTitle(monthlyEventQuest.title)}
+                  stats={(monthlyEventQuest as { stats?: QuestStats }).stats ?? getQuestStatsByTitle(monthlyEventQuest.title)}
                 />
               )}
             </>
@@ -1504,8 +1574,6 @@ export default function QuestPage() {
                   title={invertedQuest.title}
                   badge="反転"
                   badgeColor="text-violet-500 border-violet-500/50"
-                  isExpanded={expandedQuestId === 'inverted'}
-                  onToggle={() => setExpandedQuestId((x) => (x === 'inverted' ? null : 'inverted'))}
                   flavorText={invertedQuest.flavorText}
                   description={invertedQuest.description}
                   isCleared={!!invertedCleared}
@@ -1513,8 +1581,12 @@ export default function QuestPage() {
                   reflection={invertedReflectionInput}
                   onReflectionChange={setInvertedReflectionInput}
                   onSubmit={() => handleSubmitInvertedReport(invertedQuest)}
+                  onSwipeComplete={() => handleSubmitInvertedReport(invertedQuest, SWIPE_REFLECTION)}
                   isSubmitting={isSubmittingReport === 'inverted'}
                   submitLabel={`誓約を果たす（+25 ${expLabel}）`}
+                  expGain={25 + getStreakExpBonus(streakDays)}
+                  primaryStat={(invertedQuest as { primaryStat?: PrimaryStat }).primaryStat ?? getQuestPrimaryStatByTitle(invertedQuest.title)}
+                  stats={(invertedQuest as { stats?: QuestStats }).stats ?? getQuestStatsByTitle(invertedQuest.title)}
                 />
               )}
             </>
@@ -1538,8 +1610,6 @@ export default function QuestPage() {
                   title={trialQuest.title}
                   badge="試練"
                   badgeColor="text-purple-500 border-purple-500/50"
-                  isExpanded={expandedQuestId === 'trial'}
-                  onToggle={() => setExpandedQuestId((x) => (x === 'trial' ? null : 'trial'))}
                   flavorText={trialQuest.flavorText}
                   description={trialQuest.description}
                   isCleared={!!trialCleared}
@@ -1547,8 +1617,12 @@ export default function QuestPage() {
                   reflection={trialReflectionInput}
                   onReflectionChange={setTrialReflectionInput}
                   onSubmit={() => handleSubmitTrialReport(trialQuest)}
+                  onSwipeComplete={() => handleSubmitTrialReport(trialQuest, SWIPE_REFLECTION)}
                   isSubmitting={isSubmittingReport === 'trial'}
                   submitLabel={`誓約を果たす（+40 ${expLabel}）`}
+                  expGain={40 + getStreakExpBonus(streakDays)}
+                  primaryStat={(trialQuest as { primaryStat?: PrimaryStat }).primaryStat ?? getQuestPrimaryStatByTitle(trialQuest.title)}
+                  stats={(trialQuest as { stats?: QuestStats }).stats ?? getQuestStatsByTitle(trialQuest.title)}
                 />
               )}
             </>
@@ -1563,20 +1637,7 @@ export default function QuestPage() {
 
       </div>
 
-      {/* Top Nav（既存ダークHUD維持） */}
-      <nav className="fixed top-0 left-0 right-0 z-40 border-b border-border bg-muted/90 backdrop-blur-sm">
-        <div className="max-w-2xl mx-auto grid grid-cols-3">
-          <Link href="/quest" className={`flex items-center justify-center gap-2 py-3 font-mono text-xs uppercase ${pathname === '/quest' ? 'text-[hsl(var(--neon-orange))] bg-[hsl(var(--neon-orange))]/10' : 'text-muted-foreground hover:text-foreground'}`}>
-            <Swords className="w-4 h-4" /> クエスト
-          </Link>
-          <Link href="/history" className={`flex items-center justify-center gap-2 py-3 font-mono text-xs uppercase ${pathname === '/history' ? 'text-[hsl(var(--cyber-blue))] bg-[hsl(var(--cyber-blue))]/10' : 'text-muted-foreground hover:text-foreground'}`}>
-            <ScrollText className="w-4 h-4" /> 記録
-          </Link>
-          <Link href="/trophy" className={`flex items-center justify-center gap-2 py-3 font-mono text-xs uppercase ${pathname === '/trophy' ? 'text-[hsl(var(--emergency-red))] bg-[hsl(var(--emergency-red))]/10' : 'text-muted-foreground hover:text-foreground'}`}>
-            <Award className="w-4 h-4" /> Trophy
-          </Link>
-        </div>
-      </nav>
+      <BottomNav />
 
       {streakMilestoneModal && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setStreakMilestoneModal(null)}>
@@ -1587,22 +1648,6 @@ export default function QuestPage() {
               <p className="font-mono text-2xl font-bold" style={{ color: 'hsl(var(--neon-orange))' }}>+{streakMilestoneModal.expGained} {isRebornUser ? '業' : 'EXP'}</p>
               <Button variant="outline" size="sm" className="w-full font-mono" onClick={() => setStreakMilestoneModal(null)}>受け取る</Button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {clearMessageModal && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setClearMessageModal(null)}>
-          <div className="relative max-w-md w-full p-6 rounded-lg border-2 bg-background/95 float-up" style={{ borderColor: 'hsl(var(--cyber-blue))', boxShadow: '0 0 40px hsl(var(--cyber-blue) / 0.3)' }} onClick={(e) => e.stopPropagation()}>
-            {clearMessageModal.leveledUp && clearMessageModal.newLevel && (
-              <div className="mb-4 p-3 rounded-lg border-2 animate-pulse" style={{ borderColor: 'hsl(var(--neon-orange))', backgroundColor: 'hsl(var(--neon-orange)/0.1)' }}>
-                <p className="font-mono font-bold text-lg text-center" style={{ color: 'hsl(var(--neon-orange))' }}>Lv{clearMessageModal.newLevel} 昇格</p>
-                <p className="font-mono text-xs text-center text-muted-foreground mt-1">新たなクエストが解禁された</p>
-              </div>
-            )}
-            <p className="font-mono text-xs uppercase text-muted-foreground mb-2">{clearMessageModal.questTitle} — CLEAR</p>
-            <p className="text-lg italic text-foreground/95 leading-relaxed">「{clearMessageModal.message}」</p>
-            <Button variant="outline" size="sm" className="mt-4 w-full font-mono" onClick={() => setClearMessageModal(null)}>閉じる</Button>
           </div>
         </div>
       )}

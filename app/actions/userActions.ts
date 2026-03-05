@@ -151,7 +151,9 @@ export async function completeQuest(questId: string): Promise<CompleteQuestResul
       const hiddenDeltas = STAT_KEYS.map((k) => ({ key: k, delta: computed.hiddenExp[k] - currentHiddenExp[k] }))
 
       console.log(
-        '[completeQuest] EXP加算:',
+        '[completeQuest] 完了:',
+        `period=${period} difficulty=${quest.difficulty} expGain=${expGain} Lv${save.level}→${computed.level}`,
+        '| stats:',
         statDeltas.filter((d) => d.delta !== 0).map((d) => `${d.key}+${d.delta}`).join(', ') || 'なし',
         '| hiddenExp:',
         hiddenDeltas.filter((d) => d.delta !== 0).map((d) => `${d.key}+${d.delta}`).join(', ') || 'なし'

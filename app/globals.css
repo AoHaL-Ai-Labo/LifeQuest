@@ -6,6 +6,13 @@
   .text-balance {
     text-wrap: balance;
   }
+  /* PWA: iPhoneホームバーとの重なり防止 */
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .pb-nav-safe {
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 64px);
+  }
 }
 
 @layer base {

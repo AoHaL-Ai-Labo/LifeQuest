@@ -2,15 +2,14 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
-import { Swords, ScrollText, Award, CheckCircle2 } from 'lucide-react'
+import { CheckCircle2 } from 'lucide-react'
+import { BottomNav } from '@/components/bottom-nav'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { getMissionRecord } from '@/lib/mission-record'
 import type { MissionRecordItem } from '@/lib/mission-record'
 
 export default function HistoryPage() {
-  const pathname = usePathname()
   const [records, setRecords] = useState<MissionRecordItem[]>([])
 
   useEffect(() => {
@@ -70,19 +69,7 @@ export default function HistoryPage() {
         )}
       </div>
 
-      <nav className="fixed top-0 left-0 right-0 z-40 border-b border-border bg-muted/90 backdrop-blur-sm">
-        <div className="max-w-2xl mx-auto grid grid-cols-3">
-          <Link href="/quest" className={`flex items-center justify-center gap-2 py-3 font-mono text-xs uppercase ${pathname === '/quest' ? 'text-[hsl(var(--neon-orange))] bg-[hsl(var(--neon-orange))]/10' : 'text-muted-foreground hover:text-foreground'}`}>
-            <Swords className="w-4 h-4" /> クエスト
-          </Link>
-          <Link href="/history" className={`flex items-center justify-center gap-2 py-3 font-mono text-xs uppercase ${pathname === '/history' ? 'text-[hsl(var(--cyber-blue))] bg-[hsl(var(--cyber-blue))]/10' : 'text-muted-foreground hover:text-foreground'}`}>
-            <ScrollText className="w-4 h-4" /> 記録
-          </Link>
-          <Link href="/trophy" className={`flex items-center justify-center gap-2 py-3 font-mono text-xs uppercase ${pathname === '/trophy' ? 'text-[hsl(var(--emergency-red))] bg-[hsl(var(--emergency-red))]/10' : 'text-muted-foreground hover:text-foreground'}`}>
-            <Award className="w-4 h-4" /> Trophy
-          </Link>
-        </div>
-      </nav>
+      <BottomNav />
     </div>
   )
 }

@@ -99,7 +99,7 @@ export function applyQuestCompletion(
   currentExp: number,
   currentStats: QuestStats,
   currentHiddenExp: QuestStats,
-  questStatsGain: QuestStats,
+  _questStatsGain: QuestStats,
   primaryStat: PrimaryStat,
   period: 'daily' | 'weekly' | 'monthly',
   expGain: number
@@ -108,12 +108,6 @@ export function applyQuestCompletion(
   let exp = currentExp
   let stats = { ...currentStats }
   let hiddenExp = addQuestExp(currentHiddenExp, primaryStat, period)
-
-  // ステータス加算
-  const statKeys = ['str', 'dex', 'end', 'int', 'fai', 'arc'] as const
-  for (const k of statKeys) {
-    stats[k] = (stats[k] ?? 0) + (questStatsGain[k] ?? 0)
-  }
 
   // EXP 加算とレベルアップ
   let remaining = exp + expGain

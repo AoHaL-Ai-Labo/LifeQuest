@@ -35,3 +35,4 @@ export async function DELETE() {
     return NextResponse.json({ error: String(err) }, { status: 500 })
   }
 }
+

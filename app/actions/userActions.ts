@@ -105,6 +105,48 @@ export async function completeQuest(questId: string): Promise<CompleteQuestResul
     const primaryStat = quest.primaryStat as PrimaryStat
     const period = quest.period as 'daily' | 'weekly' | 'monthly'
 
+    // 期間内の重複完了チェック（二重送信防止）
+    const now = new Date()
+    const jstStr = now.toLocaleDateString('en-CA', { timeZone: 'Asia/Tokyo' })
+    const [y, m, d] = jstStr.split('-').map(Number)
+    const jstMidnight = (yy: number, mm: number, dd: number) =>
+      new Date(Date.UTC(yy, mm - 1, dd - 1, 15, 0, 0, 0))
+    const todayBoundary = jstMidnight(y, m, d)
+    const weekBoundary = (() => {
+      const dow = new Date(Date.UTC(y, m - 1, d, 12, 0, 0)).getUTCDay()
+      const daysSince = (dow - 1 + 7) % 7
+      const mon = new Date(todayBoundary.getTime() - daysSince * 86400000)
+      const jMon = new Date(mon.getTime() + 9 * 3600000)
+      return jstMidnight(jMon.getUTCFullYear(), jMon.getUTCMonth() + 1, jMon.getUTCDate())
+    })()
+    const monthBoundary = jstMidnight(y, m, 1)
+    const boundary = period === 'daily' ? todayBoundary : period === 'weekly' ? weekBoundary : monthBoundary
+
+    const alreadyCompleted = await prisma.questHistory.findFirst({
+      where: { questId, completedAt: { gte: boundary } },
+    })
+    if (alreadyCompleted) {
+      console.warn(`[completeQuest] 重複完了スキップ: ${questId} (期間内に既に完了済み)`)
+      const existing = await prisma.saveData.findFirst({ orderBy: { createdAt: 'asc' } })
+      if (!existing) return { success: false, error: 'SaveData not found' }
+      const userData: UserData = {
+        id: existing.id,
+        level: existing.level,
+        currentExp: existing.currentExp,
+        stats: {
+          str: existing.str, dex: existing.dex, end: existing.end,
+          int: existing.int, fai: existing.fai, arc: existing.arc,
+        },
+        hiddenExp: {
+          str: existing.hiddenStr, dex: existing.hiddenDex, end: existing.hiddenEnd,
+          int: existing.hiddenInt, fai: existing.hiddenFai, arc: existing.hiddenArc,
+        },
+        prefix: existing.prefix ?? '',
+        prestigeCount: existing.prestigeCount ?? 0,
+      }
+      return { success: true, userData, leveledUp: false }
+    }
+
     const result = await prisma.$transaction(async (tx) => {
       let save = await tx.saveData.findFirst({
         orderBy: { createdAt: 'asc' },

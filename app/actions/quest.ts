@@ -25,3 +25,17 @@ export async function clearQuestHistoryForDebug(): Promise<{ success: boolean; d
     return { success: false, deleted: 0 }
   }
 }
+
+/**
+ * ハードリセット: QuestHistory と SaveData を全削除
+ */
+export async function hardResetServerData(): Promise<{ success: boolean }> {
+  try {
+    await prisma.questHistory.deleteMany({})
+    await prisma.saveData.deleteMany({})
+    return { success: true }
+  } catch (err) {
+    console.error('[hardResetServerData]', err)
+    return { success: false }
+  }
+}

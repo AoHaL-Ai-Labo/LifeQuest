@@ -12,6 +12,7 @@ import { isReborn } from '@/lib/reborn'
 import { hardResetSaveData } from '@/lib/save-data'
 import { getDeveloperMode, setDeveloperMode } from '@/lib/developer-mode'
 import { DEBUG_EVENT } from '@/components/debug-panel'
+import { hardResetServerData } from '@/app/actions/quest'
 import type { PlayerStatus } from '@/lib/player-status'
 
 export default function SettingsPage() {
@@ -34,11 +35,12 @@ export default function SettingsPage() {
     return () => window.removeEventListener('developer-mode-change', onChange as EventListener)
   }, [])
 
-  const handleHardReset = () => {
+  const handleHardReset = async () => {
     if (!confirmReset) {
       setConfirmReset(true)
       return
     }
+    await hardResetServerData()
     hardResetSaveData()
     router.push('/')
   }

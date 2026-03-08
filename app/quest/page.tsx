@@ -574,7 +574,6 @@ export default function QuestPage() {
             stats: result.userData.stats,
             hiddenExp: result.userData.hiddenExp,
           })
-          window.dispatchEvent(new CustomEvent(DEBUG_EVENT))
         }
         pushClearHistory(quest.title)
         incrementStreakIfNeeded()

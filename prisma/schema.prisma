@@ -10,6 +10,55 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+/// Auth.js: ユーザーアカウント
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  accounts      Account[]
+  sessions      Session[]
+  saveData      SaveData?
+}
+
+/// Auth.js: OAuthプロバイダーアカウント紐付け
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+/// Auth.js: セッション管理
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/// Auth.js: メール認証トークン
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
 /// クエストのカタログ（マスターデータ）
 model Quest {
   id          String   @id
@@ -26,29 +75,36 @@ model Quest {
   histories QuestHistory[]
 }
 
-/// ユーザーのセーブデータ
+/// ユーザーのセーブデータ（クラウド同期用）
 model SaveData {
-  id         String   @id @default(uuid())
-  level      Int      @default(1)
-  currentExp Int      @default(0)
-  stats      String   @default("{\"str\":10,\"dex\":10,\"end\":10,\"int\":10,\"fai\":10,\"arc\":10}") // 後方互換（非推奨）
-  str        Int      @default(10)
-  dex        Int      @default(10)
-  end        Int      @default(10)
-  int        Int      @default(10)
-  fai        Int      @default(10)
-  arc        Int      @default(10)
-  hiddenStr  Int      @default(0)
-  hiddenDex  Int      @default(0)
-  hiddenEnd  Int      @default(0)
-  hiddenInt  Int      @default(0)
-  hiddenFai  Int      @default(0)
-  hiddenArc  Int      @default(0)
-  hiddenExp  String   @default("{\"str\":0,\"dex\":0,\"end\":0,\"int\":0,\"fai\":0,\"arc\":0}") // 後方互換（非推奨）
-  prefix     String   @default("")
-  prestigeCount Int   @default(0)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id            String   @id @default(uuid())
+  userId        String?  @unique
+  user          User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  level         Int      @default(1)
+  currentExp    Int      @default(0)
+  stats         String   @default("{\"str\":10,\"dex\":10,\"end\":10,\"int\":10,\"fai\":10,\"arc\":10}") // 後方互換
+  str           Int      @default(10)
+  dex           Int      @default(10)
+  end           Int      @default(10)
+  int           Int      @default(10)
+  fai           Int      @default(10)
+  arc           Int      @default(10)
+  hiddenStr     Int      @default(0)
+  hiddenDex     Int      @default(0)
+  hiddenEnd     Int      @default(0)
+  hiddenInt     Int      @default(0)
+  hiddenFai     Int      @default(0)
+  hiddenArc     Int      @default(0)
+  hiddenExp     String   @default("{\"str\":0,\"dex\":0,\"end\":0,\"int\":0,\"fai\":0,\"arc\":0}") // 後方互換
+  prefix        String   @default("")
+  prestigeCount Int      @default(0)
+  isReborn      Boolean  @default(false)
+  missionRecord String   @default("[]") @db.Text
+  trophyAchieved String  @default("[]")
+  streakData    String   @default("{}")
+  context       String   @default("{}") @db.Text
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 }
 
 /// クエストクリア履歴（トランザクション）

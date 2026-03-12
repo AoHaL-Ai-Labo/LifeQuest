@@ -448,15 +448,16 @@ export default function QuestPage() {
     primaryStat?: PrimaryStat
   ) => {
     pushMissionRecord({ questTitle, reflection, clearMessage, stats })
+    const current = loadPlayerStatus()
     const streakBonus = getStreakExpBonus(getStreakDays())
-    const baseExp = getExpPerQuestClear(playerStatus.level, period, difficulty, isExtra, false)
+    const baseExp = getExpPerQuestClear(current.level, period, difficulty, isExtra, false)
     const expGain = baseExp + streakBonus
     const questOptions = primaryStat
       ? { primaryStat, period }
       : undefined
-    const { newStatus, leveledUp } = addExpAndLevelUp(playerStatus, expGain, questOptions)
-    const prevLevel = playerStatus.level
-    const prevRank = playerStatus.rank
+    const { newStatus, leveledUp } = addExpAndLevelUp(current, expGain, questOptions)
+    const prevLevel = current.level
+    const prevRank = current.rank
     console.log('[Debug: EXP]', {
       period,
       difficulty,
@@ -484,10 +485,11 @@ export default function QuestPage() {
 
   const applyTrialClearProgress = (clearMessage: string, questTitle: string, reflection: string, stats?: { str: number; dex: number; end: number; int: number; fai: number; arc: number }, primaryStat?: PrimaryStat) => {
     pushMissionRecord({ questTitle, reflection, clearMessage, stats })
+    const current = loadPlayerStatus()
     const streakBonus = getStreakExpBonus(getStreakDays())
-    const expGain = getExpPerQuestClear(playerStatus.level, 'weekly', 'advanced', false, true) + streakBonus
+    const expGain = getExpPerQuestClear(current.level, 'weekly', 'advanced', false, true) + streakBonus
     const questOptions = primaryStat ? { primaryStat, period: 'weekly' as const } : undefined
-    const { newStatus, leveledUp } = addExpAndLevelUp(playerStatus, expGain, questOptions)
+    const { newStatus, leveledUp } = addExpAndLevelUp(current, expGain, questOptions)
     pushClearHistory(questTitle)
     incrementStreakIfNeeded()
     setStreakDays(getStreakDays())
@@ -498,10 +500,11 @@ export default function QuestPage() {
 
   const applyWeekendClearProgress = (clearMessage: string, questTitle: string, reflection: string, stats?: { str: number; dex: number; end: number; int: number; fai: number; arc: number }, primaryStat?: PrimaryStat) => {
     pushMissionRecord({ questTitle, reflection, clearMessage, stats })
+    const current = loadPlayerStatus()
     const streakBonus = getStreakExpBonus(getStreakDays())
-    const expGain = getExpPerQuestClear(playerStatus.level, 'weekly', 'intermediate', false, false, true) + streakBonus
+    const expGain = getExpPerQuestClear(current.level, 'weekly', 'intermediate', false, false, true) + streakBonus
     const questOptions = primaryStat ? { primaryStat, period: 'weekly' as const } : undefined
-    const { newStatus, leveledUp } = addExpAndLevelUp(playerStatus, expGain, questOptions)
+    const { newStatus, leveledUp } = addExpAndLevelUp(current, expGain, questOptions)
     pushClearHistory(questTitle)
     incrementStreakIfNeeded()
     setStreakDays(getStreakDays())
@@ -512,10 +515,11 @@ export default function QuestPage() {
 
   const applyMonthlyEventClearProgress = (clearMessage: string, questTitle: string, reflection: string, stats?: { str: number; dex: number; end: number; int: number; fai: number; arc: number }, primaryStat?: PrimaryStat) => {
     pushMissionRecord({ questTitle, reflection, clearMessage, stats })
+    const current = loadPlayerStatus()
     const streakBonus = getStreakExpBonus(getStreakDays())
-    const expGain = getExpPerQuestClear(playerStatus.level, 'monthly', 'advanced', false, false, false, true) + streakBonus
+    const expGain = getExpPerQuestClear(current.level, 'monthly', 'advanced', false, false, false, true) + streakBonus
     const questOptions = primaryStat ? { primaryStat, period: 'monthly' as const } : undefined
-    const { newStatus, leveledUp } = addExpAndLevelUp(playerStatus, expGain, questOptions)
+    const { newStatus, leveledUp } = addExpAndLevelUp(current, expGain, questOptions)
     pushClearHistory(questTitle)
     incrementStreakIfNeeded()
     setStreakDays(getStreakDays())
@@ -526,10 +530,11 @@ export default function QuestPage() {
 
   const applyInvertedClearProgress = (clearMessage: string, questTitle: string, reflection: string, stats?: { str: number; dex: number; end: number; int: number; fai: number; arc: number }, primaryStat?: PrimaryStat) => {
     pushMissionRecord({ questTitle, reflection, clearMessage, stats })
+    const current = loadPlayerStatus()
     const streakBonus = getStreakExpBonus(getStreakDays())
-    const expGain = getExpPerQuestClear(playerStatus.level, 'daily', 'beginner', false, false, false, false, true) + streakBonus
+    const expGain = getExpPerQuestClear(current.level, 'daily', 'beginner', false, false, false, false, true) + streakBonus
     const questOptions = primaryStat ? { primaryStat, period: 'daily' as const } : undefined
-    const { newStatus, leveledUp } = addExpAndLevelUp(playerStatus, expGain, questOptions)
+    const { newStatus, leveledUp } = addExpAndLevelUp(current, expGain, questOptions)
     pushClearHistory(questTitle)
     incrementStreakIfNeeded()
     setStreakDays(getStreakDays())

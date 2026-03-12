@@ -63,11 +63,6 @@ function getStatConfig(primaryStat: PrimaryStat | null) {
   return primaryStat ? STAT_CONFIG[primaryStat] ?? DEFAULT_STAT_CONFIG : DEFAULT_STAT_CONFIG
 }
 
-function getPrimaryStatValue(stats: QuestStats | null | undefined, primaryStat: PrimaryStat | null): number {
-  if (!stats || !primaryStat) return 0
-  return stats[primaryStat] ?? 0
-}
-
 export interface QuestFeedItemProps {
   id: string
   title: string
@@ -119,12 +114,10 @@ export function QuestFeedItem({
   onSwipeComplete,
   expGain = 0,
   primaryStat = null,
-  stats,
+  stats: _stats,
 }: QuestFeedItemProps) {
   const statConfig = getStatConfig(primaryStat)
   const StatIcon = statConfig.icon
-  const primaryStatValue = getPrimaryStatValue(stats, primaryStat)
-  const hasStats = primaryStatValue > 0 || expGain > 0
   const [swipeOffset, setSwipeOffset] = useState(0)
   const handlers = useSwipeable({
     onSwiping: (e) => {
@@ -179,22 +172,12 @@ export function QuestFeedItem({
               {description}
             </p>
           )}
-          {/* EXP・ステータスバッジ */}
-          {hasStats && (
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {expGain > 0 && (
-                <span className="inline-flex items-center gap-1 font-mono text-[10px] px-2 py-0.5 rounded bg-amber-900/50 text-amber-400 border border-amber-600/40">
-                  +{expGain} EXP
-                </span>
-              )}
-              {primaryStatValue > 0 && primaryStat && (
-                <span
-                  className={`inline-flex items-center gap-1 font-mono text-[10px] px-2 py-0.5 rounded border ${statConfig.bgClass} ${statConfig.colorClass} ${statConfig.borderClass}`}
-                >
-                  <StatIcon className="h-3 w-3" />
-                  {statConfig.label} +{primaryStatValue}
-                </span>
-              )}
+          {/* 獲得EXPバッジ（ステータス加算値は非表示） */}
+          {expGain > 0 && (
+            <div className="mt-2">
+              <span className="inline-flex items-center gap-1 font-mono text-[10px] px-2 py-0.5 rounded bg-amber-900/50 text-amber-400 border border-amber-600/40">
+                +{expGain} EXP
+              </span>
             </div>
           )}
         </div>

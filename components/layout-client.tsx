@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { SessionProvider } from 'next-auth/react'
 import { DebugPanel } from './debug-panel'
 import { SingularityModal } from './singularity-modal'
 import { Toaster } from '@/components/ui/sonner'
@@ -31,11 +32,11 @@ export function LayoutClient({ children }: { children: React.ReactNode }) {
   }, [])
 
   return (
-    <>
+    <SessionProvider>
       {children}
       {developerMode && <DebugPanel />}
       <SingularityModal />
       <Toaster theme="dark" />
-    </>
+    </SessionProvider>
   )
 }

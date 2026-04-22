@@ -16,9 +16,22 @@ const questItemSchema = z.object({
   primaryStat: z.enum(PRIMARY_STAT_VALUES),
 })
 
-/** primaryStat と period から stats オブジェクトを生成。Daily:+5, Weekly:+15, Monthly:+30 */
-function statsFromPrimaryStat(primaryStat: PrimaryStat, period: 'daily' | 'weekly' | 'monthly'): QuestStats {
-  const value = period === 'daily' ? 5 : period === 'weekly' ? 15 : 30
+type DifficultyTier = 'beginner' | 'intermediate' | 'advanced' | 'abyss'
+
+/** 難易度・期間ごとの報酬値（fixedQuests.ts と揃える: 初級+1, 中級+3, 上級+5） */
+const STAT_VALUES: Record<'daily' | 'weekly' | 'monthly', Record<DifficultyTier, number>> = {
+  daily: { beginner: 1, intermediate: 3, advanced: 5, abyss: 5 },
+  weekly: { beginner: 5, intermediate: 10, advanced: 15, abyss: 15 },
+  monthly: { beginner: 15, intermediate: 22, advanced: 30, abyss: 30 },
+}
+
+/** primaryStat と period・difficulty から stats オブジェクトを生成 */
+function statsFromPrimaryStat(
+  primaryStat: PrimaryStat,
+  period: 'daily' | 'weekly' | 'monthly',
+  difficulty: DifficultyTier = 'advanced'
+): QuestStats {
+  const value = STAT_VALUES[period][difficulty]
   return {
     str: primaryStat === 'str' ? value : 0,
     dex: primaryStat === 'dex' ? value : 0,
@@ -150,7 +163,7 @@ ${ABSOLUTE_RULES}
       prompt: '【週末チャレンジ】土日限定の特別挑戦。週末の余暇を活かした、平日では難しい「コンフォートゾーンをはみ出る」クエストを1つ生成してください。必ず primaryStat を str / dex / end / int / fai / arc のいずれか1つ選んで出力すること。',
     })
     const data = result.object as { quests: Array<{ title: string; description: string; flavorText: string; primaryStat: PrimaryStat }> }
-    const quests = data.quests.map((q) => ({ ...q, stats: statsFromPrimaryStat(q.primaryStat, 'weekly') }))
+    const quests = data.quests.map((q) => ({ ...q, stats: statsFromPrimaryStat(q.primaryStat, 'weekly', 'advanced') }))
     return new Response(JSON.stringify({ quests }), { headers: { 'Content-Type': 'application/json' } })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
@@ -194,7 +207,7 @@ ${ABSOLUTE_RULES}
       prompt: `【月間テーマ】${monthNum}月のテーマ「${theme}」に沿った、1ヶ月かけて取り組む特別クエストを1つ生成してください。必ず primaryStat を str / dex / end / int / fai / arc のいずれか1つ選んで出力すること。`,
     })
     const data = result.object as { quests: Array<{ title: string; description: string; flavorText: string; primaryStat: PrimaryStat }> }
-    const quests = data.quests.map((q) => ({ ...q, stats: statsFromPrimaryStat(q.primaryStat, 'monthly') }))
+    const quests = data.quests.map((q) => ({ ...q, stats: statsFromPrimaryStat(q.primaryStat, 'monthly', 'advanced') }))
     return new Response(JSON.stringify({ quests }), { headers: { 'Content-Type': 'application/json' } })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
@@ -231,7 +244,7 @@ ${ABSOLUTE_RULES}
       prompt: '【試練】熟練者への挑戦状。価値観やアイデンティティの最深部に触れる、1週間かけて取り組む「試練」クエストを1つ生成してください。必ず primaryStat を str / dex / end / int / fai / arc のいずれか1つ選んで出力すること。',
     })
     const data = result.object as { quests: Array<{ title: string; description: string; flavorText: string; primaryStat: PrimaryStat }> }
-    const quests = data.quests.map((q) => ({ ...q, stats: statsFromPrimaryStat(q.primaryStat, 'weekly') }))
+    const quests = data.quests.map((q) => ({ ...q, stats: statsFromPrimaryStat(q.primaryStat, 'weekly', 'advanced') }))
     return new Response(JSON.stringify({ quests }), { headers: { 'Content-Type': 'application/json' } })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
@@ -281,7 +294,7 @@ ${ABSOLUTE_RULES}`,
         prompt: `【エクストラ】${period === 'daily' ? 'Daily' : period === 'weekly' ? 'Weekly' : 'Monthly'} × ${def.name}の全クリア達成者への褒美として、やや挑戦的で達成感の高い『少し嫌だけど脳が拡張する』クエストを**1つ**生成してください。必ず primaryStat を str / dex / end / int / fai / arc のいずれか1つ選んで出力すること。`,
       })
       const data = result.object as { quests: Array<{ title: string; description: string; flavorText: string; primaryStat: PrimaryStat }> }
-      const quests = data.quests.map((q) => ({ ...q, stats: statsFromPrimaryStat(q.primaryStat, period) }))
+      const quests = data.quests.map((q) => ({ ...q, stats: statsFromPrimaryStat(q.primaryStat, period, difficulty) }))
       return new Response(JSON.stringify({ quests }), { headers: { 'Content-Type': 'application/json' } })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error'
@@ -349,7 +362,7 @@ ${ABSOLUTE_RULES}`,
     })
 
     const data = result.object as { quests: Array<{ title: string; description: string; flavorText: string; primaryStat: PrimaryStat }> }
-    const aiQuestsWithStats = data.quests.map((q) => ({ ...q, stats: statsFromPrimaryStat(q.primaryStat, period) }))
+    const aiQuestsWithStats = data.quests.map((q) => ({ ...q, stats: statsFromPrimaryStat(q.primaryStat, period, difficulty) }))
     const quests = mergeAndShuffle(fixedQuests, aiQuestsWithStats)
     return new Response(JSON.stringify({ quests }), {
       headers: { 'Content-Type': 'application/json' },
